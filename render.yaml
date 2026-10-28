@@ -10,7 +10,6 @@ services:
     autoDeployTrigger: checksPass
     domains:
       - api.quangphuc.id.vn
-    maxShutdownDelaySeconds: 60
     envVars:
       - fromGroup: tlms-production
       - key: DATABASE_URL

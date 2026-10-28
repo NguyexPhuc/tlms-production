@@ -3,6 +3,9 @@
 .env.*.local
 .report-tools/
 .vercel/
+.neon
+.wrangler/
+.deploy-tmp/
 
 # Runtime and generated private data
 uploads/
