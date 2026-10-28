@@ -1,0 +1,53 @@
+  // ============ Schedule & Attendance ============
+
+  async getWeekSchedules(weekStart: string): Promise<any> {
+    const response = await this.client.get(`/schedules/week/${weekStart}`);
+    return response.data;
+  }
+
+  async getMySchedules(params?: {
+    start_date?: string;
+    end_date?: string;
+    include_cancelled?: boolean;
+  }): Promise<any> {
+    const response = await this.client.get('/schedules/my', { params });
+    return response.data;
+  }
+
+  async registerWeekSchedules(data: any): Promise<any> {
+    const response = await this.client.post('/schedules/week', data);
+    return response.data;
+  }
+
+  async cancelSchedule(scheduleId: string, reason: string): Promise<any> {
+    const response = await this.client.patch(`/schedules/${scheduleId}/cancel`, {
+      reason
+    });
+    return response.data;
+  }
+
+  async checkIn(data: any): Promise<any> {
+    const response = await this.client.post('/schedules/check-in', data);
+    return response.data;
+  }
+
+  async checkOut(attendanceId: string, data: any): Promise<any> {
+    const response = await this.client.post(`/schedules/check-out/${attendanceId}`, data);
+    return response.data;
+  }
+
+  async getMyAttendances(params?: {
+    start_date?: string;
+    end_date?: string;
+  }): Promise<any> {
+    const response = await this.client.get('/schedules/attendance/my', { params });
+    return response.data;
+  }
+
+  async getAttendanceStats(params?: {
+    start_date?: string;
+    end_date?: string;
+  }): Promise<any> {
+    const response = await this.client.get('/schedules/attendance/stats', { params });
+    return response.data;
+  }

@@ -1,0 +1,47 @@
+# FastAPI Framework
+fastapi==0.162.0
+uvicorn==0.54.0
+
+# Database
+sqlalchemy==2.1.6
+greenlet==3.5.6
+asyncpg==0.32.0
+alembic==1.20.1
+
+# MySQL Driver (for LHU Student Sync)
+aiomysql==0.3.2
+
+# HTTP Client
+httpx==0.28.1
+
+# Environment & Config
+pydantic-settings==2.16.1
+python-dotenv==1.2.4
+
+# Security & Auth
+python-jose==3.5.0
+
+# Validation
+email-validator==2.3.0
+
+# CORS
+python-multipart==0.0.32
+
+# Background Tasks & Scheduling
+APScheduler==3.11.3
+pytz==2026.5
+
+# Tests
+pytest==9.1.1
+pytest-asyncio==1.4.1
+
+# MongoDB Driver
+motor==3.7.1
+
+# Digital certificates (vector PDF + real QR code)
+reportlab==5.1.0
+qrcode[pil]==8.2
+Pillow==13.0.0
+
+# S3-compatible object storage (Cloudflare R2 in production)
+boto3==1.43.119

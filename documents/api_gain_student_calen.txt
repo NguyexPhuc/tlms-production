@@ -1,0 +1,279 @@
+from datetime import datetime, timezone, timedelta
+import random
+
+import requests
+from requests import Response
+from pydantic import BaseModel
+from src.core.configurations import CacheConfigs
+from src.utils.datetime import parse_string_datetime
+from src.core.cache import CacheManager
+
+class CalenItem(BaseModel):
+    start_time: datetime 
+    end_time: datetime
+    room_name: str
+    subject_name: str
+    facility_name: str 
+
+class ConnectionError(Exception):
+    pass
+
+class TimeoutError(Exception):
+    pass
+
+class LHUCalenAPI:
+    def __init__(self, api_url: str, student_id: str, cache_manager: CacheManager) -> None:
+        self._api_url: str = api_url
+        self._student_id: str = student_id
+        self._cache_manager: CacheManager = cache_manager 
+    
+    def get_data(self, day_range: int, dt: datetime | None = None) -> list[CalenItem]:
+        """Fetch data from the API, use current time if `dt` is not provided
+        
+        Raises:
+            `ConnectionError` : When having network errors
+            `TimeoutError` : When the request have not responsed within 10s 
+        """
+
+        if dt is None:
+            dt = datetime.now(timezone.utc)
+        elif dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+
+        # Periodically clean expired cache entries (about 10% of the time)
+        if random.random() < 0.1:  # 10% chance to clean expired cache files
+            self._cache_manager.clear_expired()
+
+        # Check cache first
+        cached_result = self._cache_manager.get(
+            self._api_url,
+            self._student_id,
+            dt,
+            day_range
+        )
+
+        if cached_result is not None:
+            # Convert cached data back to CalenItem objects
+            return [
+                CalenItem.model_validate_json(item_dict)
+                for item_dict in cached_result
+            ]
+
+        # Prepare payload and make API request
+        payload = {
+            "StudentID": self._student_id,
+            "Ngay": dt,
+            "PageIndex": 1,
+            "PageSize": 30
+        }
+
+        try:
+            res: Response = requests.post(self._api_url, payload, timeout=10)
+            res.raise_for_status()
+        except requests.exceptions.ConnectionError:
+            raise ConnectionError()
+        except requests.exceptions.Timeout:
+            raise TimeoutError()
+         
+        raw_data = res.json()["data"][2]
+        parsed_data = [
+            CalenItem(
+                start_time = parse_string_datetime(d["ThoiGianBD"]),
+                end_time = parse_string_datetime(d["ThoiGianKT"]),
+                room_name = d["TenPhong"],
+                subject_name =  d["TenMonHoc"],
+                facility_name =  d["TenCoSo"],
+            )
+            for d in raw_data
+        ]
+        end_date = dt + timedelta(days=day_range)
+        filtered_data = [
+            item
+            for item in parsed_data
+            if item.end_time <= end_date and item.start_time >= dt
+        ]
+
+        # Store the result in cache
+        cacheable_data = [
+            item.model_dump_json()
+            for item in filtered_data
+        ]
+        
+        self._cache_manager.set(
+            self._api_url,
+            self._student_id,
+            dt,
+            day_range,
+            cacheable_data
+        )
+
+        return filtered_data
+
+
+from dataclasses import dataclass
+from typing import ClassVar, override, Any, Never
+
+
+# Metaclass that prevent class-object from modifying static attributes
+class _ImmutableAttribute(type):
+    """
+    Explaination:
+        In Python, classes are objects (created using the `type` function (see signature)), 
+        and we can hook to the class creation process using metaclass. In this case we use
+        `_ImmutableAttribute` metaclass to prevent `BaseConfigs` from modifying static attributes.
+
+        The reason why we do this on the `BaseConfigs`'s metaclass and not in it-self is 
+        because if we were overriden the `__setattr__` IN the BaseConfigs, it would just 
+        prevent the objects instantiation by `BaseConfigs` from modifying attributes, not
+        the `BaseConfigs` class it-self.
+    """
+    @override
+    def __setattr__(self, key: str, value: Any) -> Never:
+        raise AttributeError("read-only")
+
+# Base config class that prevent instantiation
+class _BaseConfigs(metaclass=_ImmutableAttribute):
+    # Prevent instantiation
+    def __new__(cls, *args, **kwargs) -> Never:
+        raise TypeError("Config is static-only")
+
+
+class APIConfigs(_BaseConfigs):
+    # The URL to fetch calendar data
+    LHU_API_URL: ClassVar[str] = "https://tapi.lhu.edu.vn/calen/auth/XemLich_LichSinhVien"
+    # Day range is how many days that has schedule to be shown
+    DEFAULT_DAY_RANGE: ClassVar[int] = 4
+
+class CacheConfigs(_BaseConfigs):
+    # Time-to-live for the cache
+    TTL_HOURS: ClassVar[int] = 24
+    # App name is used to create platfrom-specific cache location
+    APP_NAME: ClassVar[str] = "lhu-calendar"
+
+
+
+
+import json
+from datetime import datetime, timedelta
+from pathlib import Path
+from hashlib import md5
+import platformdirs
+
+class CacheManager:
+    """
+    A simple file-based cache manager for storing API responses.
+    """
+
+    def __init__(self, app_name: str, ttl_hours: int = 24):
+        """
+        Initialize the cache manager.
+
+        Args:
+            app_name: Name of the application for platform-specific cache directory
+            ttl_hours: Time-to-live in hours for cached data
+        """
+        self.cache_dir: Path = Path(platformdirs.user_cache_dir(app_name))
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.ttl: timedelta = timedelta(hours=ttl_hours)
+    
+    def _get_cache_key(self, api_url: str, student_id: str, query_time: datetime, day_range: int) -> str:
+        """
+        Generate a unique cache key based on API parameters.
+        """
+        # Use only the date part (YYYY-MM-DD) for consistent caching throughout the day
+        date_str = query_time.date().isoformat()
+        key_str = f"{api_url}:{student_id}:{date_str}:{day_range}"
+        return md5(key_str.encode()).hexdigest()
+    
+    def _get_cache_file_path(self, cache_key: str) -> Path:
+        """
+        Get the file path for a cache key.
+        """
+        return self.cache_dir / f"{cache_key}.json"
+    
+    def get(
+            self, 
+            api_url: str, 
+            student_id: str, 
+            query_time: datetime, 
+            day_range: int
+        ) -> list[dict[str, str]] | None:
+        """
+        Retrieve cached data if it exists and hasn't expired.
+        
+        Returns:
+            Cached data if found and valid, None otherwise
+        """
+        cache_key = self._get_cache_key(api_url, student_id, query_time, day_range)
+        cache_file = self._get_cache_file_path(cache_key)
+        
+        if not cache_file.exists():
+            return None
+        
+        try:
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                cached_data = json.load(f)
+            
+            # Check if the cache has expired
+            cache_time = datetime.fromisoformat(cached_data['timestamp'])
+            if datetime.now() - cache_time > self.ttl:
+                # Remove expired cache file
+                cache_file.unlink()
+                return None
+            
+            return cached_data['data']
+        except (json.JSONDecodeError, KeyError, ValueError, OSError):
+            # If there's any issue reading the cache, remove the file and return None
+            if cache_file.exists():
+                cache_file.unlink()
+            return None
+    
+    def set(
+            self, 
+            api_url: str, 
+            student_id: str, 
+            query_time: datetime, 
+            day_range: int, 
+            data: list[dict[str, str]]
+        ) -> None:
+        """
+        Store data in the cache.
+        """
+        cache_key = self._get_cache_key(api_url, student_id, query_time, day_range)
+        cache_file = self._get_cache_file_path(cache_key)
+        
+        cache_data = {
+            'timestamp': datetime.now().isoformat(),
+            'data': data
+        }
+        
+        try:
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                json.dump(cache_data, f, ensure_ascii=False, indent=2)
+        except OSError:
+            # If we can't write to cache, just ignore (don't break the app)
+            pass
+    
+    def clear_expired(self) -> int:
+        """
+        Remove all expired cache files.
+        
+        Returns:
+            Number of files removed
+        """
+        count = 0
+        for cache_file in self.cache_dir.glob("*.json"):
+            try:
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    cached_data = json.load(f)
+                
+                cache_time = datetime.fromisoformat(cached_data['timestamp'])
+                if datetime.now() - cache_time > self.ttl:
+                    cache_file.unlink()
+                    count += 1
+            except (json.JSONDecodeError, KeyError, ValueError, OSError):
+                # If there's any issue reading the cache file, remove it
+                cache_file.unlink()
+                count += 1
+        
+        return count

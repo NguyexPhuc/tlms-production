@@ -1,0 +1,129 @@
+services:
+  - type: web
+    name: tlms-api
+    runtime: docker
+    region: singapore
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    domains:
+      - api.quangphuc.id.vn
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - fromGroup: tlms-production
+      - key: DATABASE_URL
+        sync: false
+      - key: RUN_SCHEDULER
+        value: "false"
+      - key: AUTO_CREATE_SCHEMA
+        value: "false"
+      - key: WEB_CONCURRENCY
+        value: "1"
+
+envVarGroups:
+  - name: tlms-production
+    envVars:
+      - key: APP_NAME
+        value: TLMS
+      - key: APP_ENV
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: PUBLIC_WEB_URL
+        value: https://quangphuc.id.vn
+      - key: CORS_ORIGINS
+        value: https://quangphuc.id.vn
+      - key: STORAGE_BACKEND
+        value: s3
+      - key: S3_REGION
+        value: auto
+      - key: S3_ENDPOINT_URL
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: DEV_AUTH_FALLBACK_ENABLED
+        value: "false"
+      - key: DEV_AUTH_PASSWORD
+        sync: false
+      - key: DEV_AUTH_SECRET_KEY
+        generateValue: true
+      - key: S4H_AUTH_BASE_URL
+        sync: false
+      - key: LHU_API_BASE_URL
+        value: https://tapi.lhu.edu.vn
+      - key: LHU_MYSQL_HOST
+        sync: false
+      - key: LHU_MYSQL_PORT
+        value: "3306"
+      - key: LHU_MYSQL_USER
+        sync: false
+      - key: LHU_MYSQL_PASSWORD
+        sync: false
+      - key: LHU_MYSQL_DATABASE
+        sync: false
+      - key: MONGODB_CONNECTION_STRING
+        sync: false
+      - key: MONGODB_DATABASE
+        value: checkin_service
+      - key: MONGODB_USERS_COLLECTION
+        value: users
+      - key: USER_IMPORT_SECRET_TOKEN
+        generateValue: true
+      - key: WEBHOOK_API_KEY
+        generateValue: true
+      - key: SCHEDULER_API_KEY
+        generateValue: true
+      - key: AI_PROVIDER
+        value: gemini
+      - key: AI_MODEL
+        value: gemini-2.5-flash
+      - key: AI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: DAILY_QUEST_LIMIT
+        value: "5"
+      - key: DAILY_QUEST_RESET_HOUR
+        value: "0"
+      - key: AI_AUTO_PASS_SCORE
+        value: "70"
+      - key: CERTIFICATE_ISSUER_NAME
+        value: T&A Lab
+      - key: CERTIFICATE_VERIFY_RATE_LIMIT
+        value: "30"
+      - key: WEEKLY_CUP_MIN_DISCIPLINE
+        value: "80"
+      - key: WEEKLY_CUP_OPEN_WEEKDAY
+        value: "4"
+      - key: WEEKLY_CUP_OPEN_HOUR
+        value: "0"
+      - key: WEEKLY_CUP_DURATION_HOURS
+        value: "24"
+      - key: ZALO_INTEGRATION_ENABLED
+        value: "false"
+      - key: ZALO_PROVIDER
+        value: mock
+      - key: ZALO_APP_ID
+        sync: false
+      - key: ZALO_APP_SECRET
+        sync: false
+      - key: ZALO_OA_ID
+        sync: false
+      - key: ZALO_OA_SECRET_KEY
+        sync: false
+      - key: ZALO_OA_ACCESS_TOKEN
+        sync: false
+      - key: ZALO_OA_REFRESH_TOKEN
+        sync: false
+      - key: ZALO_WEB_APP_URL
+        value: https://quangphuc.id.vn

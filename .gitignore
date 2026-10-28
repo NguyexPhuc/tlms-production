@@ -1,0 +1,23 @@
+.env
+.env.local
+.env.*.local
+.report-tools/
+.vercel/
+
+# Runtime and generated private data
+uploads/
+private/
+backend/uploads/
+backend/private/
+documents/exports/
+documents/reports/
+
+# Tooling and editor artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+node_modules/
+.next/
+*.tsbuildinfo
+*~
+\#*\#

@@ -1,0 +1,77 @@
+name: TLMS Scheduled Jobs
+
+on:
+  schedule:
+    - cron: "7 0 * * *"
+      timezone: "Asia/Ho_Chi_Minh"
+    - cron: "13 0 * * 1"
+      timezone: "Asia/Ho_Chi_Minh"
+    - cron: "19 0 * * 5"
+      timezone: "Asia/Ho_Chi_Minh"
+    - cron: "2,17,32,47 * * * *"
+      timezone: "Asia/Ho_Chi_Minh"
+  workflow_dispatch:
+    inputs:
+      job:
+        description: Scheduled job to run
+        required: true
+        type: choice
+        options:
+          - daily-quests
+          - weekly-schedules
+          - weekly-cup
+          - zalo
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tlms-scheduled-${{ github.event.schedule || inputs.job }}
+  cancel-in-progress: false
+
+jobs:
+  run:
+    name: Run scheduled TLMS job
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TLMS_API_BASE_URL: ${{ vars.TLMS_API_BASE_URL }}
+      SCHEDULER_API_KEY: ${{ secrets.SCHEDULER_API_KEY }}
+      MANUAL_JOB: ${{ inputs.job }}
+      EVENT_SCHEDULE: ${{ github.event.schedule }}
+    steps:
+      - name: Resolve job name
+        id: job
+        shell: bash
+        run: |
+          if [ -n "$MANUAL_JOB" ]; then
+            job="$MANUAL_JOB"
+          else
+            case "$EVENT_SCHEDULE" in
+              "7 0 * * *") job="daily-quests" ;;
+              "13 0 * * 1") job="weekly-schedules" ;;
+              "19 0 * * 5") job="weekly-cup" ;;
+              "2,17,32,47 * * * *") job="zalo" ;;
+              *) echo "Unknown schedule: $EVENT_SCHEDULE" >&2; exit 1 ;;
+            esac
+          fi
+          echo "job=$job" >> "$GITHUB_OUTPUT"
+
+      - name: Validate deployment configuration
+        shell: bash
+        run: |
+          test -n "$TLMS_API_BASE_URL" || { echo "Missing TLMS_API_BASE_URL repository variable" >&2; exit 1; }
+          test -n "$SCHEDULER_API_KEY" || { echo "Missing SCHEDULER_API_KEY repository secret" >&2; exit 1; }
+
+      - name: Run job
+        shell: bash
+        run: |
+          curl --fail-with-body \
+            --retry 3 \
+            --retry-delay 20 \
+            --retry-all-errors \
+            --connect-timeout 120 \
+            --max-time 420 \
+            --request POST \
+            --header "X-Scheduler-Key: $SCHEDULER_API_KEY" \
+            "$TLMS_API_BASE_URL/api/v1/internal/jobs/${{ steps.job.outputs.job }}"

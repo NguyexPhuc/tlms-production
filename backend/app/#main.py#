@@ -1,0 +1,190 @@
+
+"""
+TLMS - T&A Lab Management System
+Main FastAPI Application
+
+This system implements:
+- Proxy Authentication Pattern with S4H Auth Service (oauth.md)
+- RBAC with roles: Candidate, Member, Mentor, Admin (system.md)
+- Gamification: XP, Levels, Discipline Score (system.md)
+"""
+import logging
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from app.core.config import get_settings
+from app.core.database import init_db
+from app.core.exceptions import (
+    S4HServiceUnavailableException,
+    TokenExpiredException,
+    InvalidCredentialsException
+)
+from app.api.routes import api_router
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Application lifespan handler
+    - Startup: Initialize database tables
+    - Shutdown: Cleanup resources
+    """
+    # Startup
+    logger.info(f"Starting {settings.APP_NAME} in {settings.APP_ENV} mode")
+    
+    try:
+        await init_db()
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}")
+        raise
+    
+    yield
+    
+    # Shutdown
+    logger.info("Shutting down application")
+
+
+# Create FastAPI application
+app = FastAPI(
+    title="TLMS - T&A Lab Management System",
+    description="""
+## Hệ thống quản lý Lab T&A
+
+### Tính năng chính:
+- 🔐 **Xác thực OAuth** qua S4H Auth Service
+- 👥 **Phân quyền RBAC**: Candidate, Member, Mentor, Admin
+- 🎮 **Gamification**: XP, Level, Bảng xếp hạng
+- 📅 **Quản lý lịch trình** và điểm chuyên cần
+- 📊 **ePortfolio** động cho thành viên
+
+### Xác thực:
+- Đăng nhập: `POST /api/v1/auth/login`
+- Đăng ký: `POST /api/v1/auth/register`  
+- Làm mới token: `POST /api/v1/auth/refresh`
+- Token phải gửi trong header: `Authorization: Bearer <token>`
+    """,
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    lifespan=lifespan
+)
+
+# Configure CORS (oauth.md section 6)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"]
+)
+
+
+# Exception handlers
+@app.exception_handler(S4HServiceUnavailableException)
+async def s4h_unavailable_handler(request: Request, exc: S4HServiceUnavailableException):
+    """Handle S4H Auth Service downtime gracefully"""
+    logger.error("S4H Auth Service is unavailable")
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={
+            "error": "service_unavailable",
+            "detail": "Hệ thống đăng nhập đang bảo trì. Vui lòng thử lại sau.",
+            "success": False
+        }
+    )
+
+
+@app.exception_handler(TokenExpiredException)
+async def token_expired_handler(request: Request, exc: TokenExpiredException):
+    """Handle expired/invalid tokens"""
+    return JSONResponse(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        content={
+            "error": "unauthorized",
+            "detail": "Token đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại.",
+            "success": False
+        },
+        headers={"WWW-Authenticate": "Bearer"}
+    )
+
+
+@app.exception_handler(InvalidCredentialsException)
+async def invalid_credentials_handler(request: Request, exc: InvalidCredentialsException):
+    """Handle invalid login credentials"""
+    return JSONResponse(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        content={
+            "error": "invalid_credentials",
+            "detail": "Sai tài khoản hoặc mật khẩu",
+            "success": False
+        }
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handle validation errors with Vietnamese messages"""
+    errors = []
+    for error in exc.errors():
+        field = " -> ".join(str(loc) for loc in error["loc"])
+        errors.append(f"{field}: {error['msg']}")
+    
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "error": "validation_error",
+            "detail": "Dữ liệu không hợp lệ",
+            "errors": errors,
+            "success": False
+        }
+    )
+
+
+# Include API routes
+app.include_router(api_router, prefix="/api/v1")
+
+
+# Health check endpoint
+@app.get("/health", tags=["Health"])
+async def health_check():
+    """Health check endpoint for monitoring"""
+    return {
+        "status": "healthy",
+        "app": settings.APP_NAME,
+        "environment": settings.APP_ENV
+    }
+
+
+# Root endpoint
+@app.get("/", tags=["Root"])
+async def root():
+    """Root endpoint with API info"""
+    return {
+        "app": "TLMS - T&A Lab Management System",
+        "version": "1.0.0",
+        "docs": "/docs",
+        "health": "/health"
+    }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "app.main:app",
+        host=settings.HOST,
+        port=settings.PORT,
+        reload=settings.DEBUG
+    )

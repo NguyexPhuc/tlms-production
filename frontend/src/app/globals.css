@@ -1,0 +1,125 @@
+@import "tailwindcss";
+
+/* Custom theme - Professional Social Management Colors */
+@theme {
+  /* Blue - Trust & Reliability */
+  --color-primary-50: #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-200: #bfdbfe;
+  --color-primary-300: #93c5fd;
+  --color-primary-400: #60a5fa;
+  --color-primary-500: #1E90FF;
+  --color-primary-600: #1a7de0;
+  --color-primary-700: #1565c0;
+  --color-primary-800: #1e40af;
+  --color-primary-900: #1e3a8a;
+  
+  /* Green - Growth & Progress */
+  --color-success-50: #f0fdf4;
+  --color-success-100: #dcfce7;
+  --color-success-200: #bbf7d0;
+  --color-success-300: #86efac;
+  --color-success-400: #4ade80;
+  --color-success-500: #32CD32;
+  --color-success-600: #22c55e;
+  --color-success-700: #15803d;
+  --color-success-800: #166534;
+  --color-success-900: #14532d;
+  
+  /* Orange - Creativity & Energy */
+  --color-accent-50: #fff7ed;
+  --color-accent-100: #ffedd5;
+  --color-accent-200: #fed7aa;
+  --color-accent-300: #fdba74;
+  --color-accent-400: #fb923c;
+  --color-accent-500: #FFA500;
+  --color-accent-600: #ea580c;
+  --color-accent-700: #c2410c;
+  --color-accent-800: #9a3412;
+  --color-accent-900: #7c2d12;
+  
+  /* Purple - Wisdom & Innovation */
+  --color-special-50: #faf5ff;
+  --color-special-100: #f3e8ff;
+  --color-special-200: #e9d5ff;
+  --color-special-300: #d8b4fe;
+  --color-special-400: #c084fc;
+  --color-special-500: #a855f7;
+  --color-special-600: #9333ea;
+  --color-special-700: #7c3aed;
+  --color-special-800: #6b21a8;
+  --color-special-900: #581c87;
+}
+
+:root {
+  --foreground-rgb: 30, 41, 59;
+  --background-rgb: 248, 250, 252;
+  --accent-color: #1E90FF;
+  --accent-light: #60a5fa;
+  --success-color: #32CD32;
+  --warning-color: #FFA500;
+  --special-color: #9333ea;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: rgb(var(--background-rgb));
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Better touch targets for mobile */
+@media (max-width: 640px) {
+  button, a, input, select, textarea {
+    min-height: 44px;
+  }
+  
+  .btn-touch {
+    padding: 12px 16px;
+  }
+}
+
+/* Professional table styling */
+table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+/* Smooth transitions */
+* {
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Card hover effects */
+.card-hover {
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+
+.card-hover:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* Focus states */
+input:focus, select:focus, textarea:focus, button:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}

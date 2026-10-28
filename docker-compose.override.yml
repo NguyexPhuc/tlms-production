@@ -1,0 +1,14 @@
+services:
+  db:
+    ports:
+      - "5434:5432"
+
+  backend:
+    ports:
+      - "8000:8000"
+    environment:
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+
+  frontend:
+    ports:
+      - "3000:3000"

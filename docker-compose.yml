@@ -1,0 +1,142 @@
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:16-alpine
+    container_name: tlms-db
+    restart: unless-stopped
+    command: ["postgres", "-c", "hba_file=/etc/postgresql/pg_hba.conf"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-tlms}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-tlms}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - tlms-network
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: tlms-backend
+    restart: unless-stopped
+    environment:
+      APP_NAME: TLMS
+      APP_ENV: development
+      DEBUG: "false"
+      RUN_SCHEDULER: ${RUN_SCHEDULER:-true}
+      AUTO_CREATE_SCHEMA: ${AUTO_CREATE_SCHEMA:-true}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-tlms}
+      S4H_AUTH_BASE_URL: ${S4H_AUTH_BASE_URL:-http://api-auth.aisteamx.edu.vn}
+      DEV_AUTH_FALLBACK_ENABLED: ${DEV_AUTH_FALLBACK_ENABLED:-false}
+      DEV_AUTH_PASSWORD: ${DEV_AUTH_PASSWORD:-}
+      DEV_AUTH_SECRET_KEY: ${DEV_AUTH_SECRET_KEY:-}
+      DEV_AUTH_ACCESS_TOKEN_MINUTES: ${DEV_AUTH_ACCESS_TOKEN_MINUTES:-1440}
+      DEV_AUTH_REFRESH_TOKEN_DAYS: ${DEV_AUTH_REFRESH_TOKEN_DAYS:-7}
+      LHU_API_BASE_URL: ${LHU_API_BASE_URL:-https://tapi.lhu.edu.vn}
+      LHU_MYSQL_HOST: ${LHU_MYSQL_HOST:-}
+      LHU_MYSQL_PORT: ${LHU_MYSQL_PORT:-3306}
+      LHU_MYSQL_USER: ${LHU_MYSQL_USER:-}
+      LHU_MYSQL_PASSWORD: ${LHU_MYSQL_PASSWORD:-}
+      LHU_MYSQL_DATABASE: ${LHU_MYSQL_DATABASE:-}
+      AI_PROVIDER: ${AI_PROVIDER:-openai}
+      AI_API_KEY: ${AI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+      DAILY_QUEST_LIMIT: ${DAILY_QUEST_LIMIT:-5}
+      DAILY_QUEST_RESET_HOUR: ${DAILY_QUEST_RESET_HOUR:-0}
+      AI_AUTO_PASS_SCORE: ${AI_AUTO_PASS_SCORE:-70}
+      UPLOAD_DIR: ${UPLOAD_DIR:-/app/uploads}
+      QUEST_PROOF_UPLOAD_DIR: ${QUEST_PROOF_UPLOAD_DIR:-quest_proofs}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-5000000}
+      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:3000}
+      CERTIFICATE_STORAGE_DIR: ${CERTIFICATE_STORAGE_DIR:-/app/private/certificates}
+      CERTIFICATE_ISSUER_NAME: ${CERTIFICATE_ISSUER_NAME:-T&A Lab}
+      CERTIFICATE_VERIFY_RATE_LIMIT: ${CERTIFICATE_VERIFY_RATE_LIMIT:-30}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      S3_REGION: ${S3_REGION:-auto}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      WEEKLY_CUP_MIN_DISCIPLINE: ${WEEKLY_CUP_MIN_DISCIPLINE:-80}
+      WEEKLY_CUP_OPEN_WEEKDAY: ${WEEKLY_CUP_OPEN_WEEKDAY:-4}
+      WEEKLY_CUP_OPEN_HOUR: ${WEEKLY_CUP_OPEN_HOUR:-0}
+      WEEKLY_CUP_DURATION_HOURS: ${WEEKLY_CUP_DURATION_HOURS:-24}
+      ZALO_INTEGRATION_ENABLED: ${ZALO_INTEGRATION_ENABLED:-false}
+      ZALO_PROVIDER: ${ZALO_PROVIDER:-mock}
+      ZALO_APP_ID: ${ZALO_APP_ID:-}
+      ZALO_APP_SECRET: ${ZALO_APP_SECRET:-}
+      ZALO_OA_ID: ${ZALO_OA_ID:-}
+      ZALO_OA_SECRET_KEY: ${ZALO_OA_SECRET_KEY:-}
+      ZALO_OA_ACCESS_TOKEN: ${ZALO_OA_ACCESS_TOKEN:-}
+      ZALO_OA_REFRESH_TOKEN: ${ZALO_OA_REFRESH_TOKEN:-}
+      ZALO_OA_SEND_URL: ${ZALO_OA_SEND_URL:-https://openapi.zalo.me/v3.0/oa/message/cs}
+      ZALO_OA_TOKEN_URL: ${ZALO_OA_TOKEN_URL:-https://oauth.zaloapp.com/v4/oa/access_token}
+      ZALO_WEB_APP_URL: ${ZALO_WEB_APP_URL:-http://localhost:3000}
+      ZALO_LINK_TOKEN_MINUTES: ${ZALO_LINK_TOKEN_MINUTES:-15}
+      ZALO_WEBHOOK_MAX_SKEW_SECONDS: ${ZALO_WEBHOOK_MAX_SKEW_SECONDS:-300}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://tlms-frontend:3000}
+      WEBHOOK_API_KEY: ${WEBHOOK_API_KEY:-}
+      SCHEDULER_API_KEY: ${SCHEDULER_API_KEY:-}
+      # MongoDB for User Import
+      MONGODB_CONNECTION_STRING: ${MONGODB_CONNECTION_STRING:-}
+      MONGODB_DATABASE: ${MONGODB_DATABASE:-checkin_service}
+      MONGODB_USERS_COLLECTION: ${MONGODB_USERS_COLLECTION:-users}
+      # User Import Security Token
+      USER_IMPORT_SECRET_TOKEN: ${USER_IMPORT_SECRET_TOKEN:-}
+    depends_on:  
+      db:
+        condition: service_healthy
+    volumes:
+      - quest_uploads:/app/uploads
+      - certificate_storage:/app/private/certificates
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - tlms-network
+
+  # Next.js Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
+    container_name: tlms-frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - tlms-network
+      - nginx_default
+
+volumes:
+  postgres_data:
+    driver: local
+  quest_uploads:
+    driver: local
+  certificate_storage:
+    driver: local
+
+networks:
+  tlms-network:
+    driver: bridge
+  nginx_default:
+    external: true
