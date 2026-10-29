@@ -612,10 +612,16 @@ class DailyQuestService:
             raise RuntimeError("AI_API_KEY/OPENAI_API_KEY/ANTHROPIC_API_KEY/GEMINI_API_KEY is not configured")
 
         prompt = (
-            "Generate Daily Quests for a lab trainee. Return only valid JSON with key quests. "
-            "Each quest must have title, description, difficulty in easy|medium|hard, xp_reward. "
-            f"Create exactly {count} quests. Keep each description under 160 Vietnamese characters.\n"
-            f"Candidate context: {json.dumps(context, ensure_ascii=False)}"
+            "Hãy tạo Daily Quest bằng tiếng Việt cho thành viên đang học công nghệ thông tin. "
+            "Trả về đúng JSON có key quests. Mỗi quest bắt buộc có: title, objective, steps, "
+            "evidence, completion_criteria, difficulty (easy|medium|hard), xp_reward. "
+            "steps là mảng gồm 3 hoặc 4 bước ngắn, cụ thể, bắt đầu bằng động từ. "
+            "objective phải nói rõ người học sẽ tạo ra kết quả gì. evidence phải nói chính xác "
+            "nội dung cần nhập, link hoặc ảnh cần nộp. completion_criteria phải là điều kiện có thể "
+            "kiểm tra được. Không dùng yêu cầu mơ hồ như 'ôn lại', 'tìm hiểu' hoặc 'thực hành' nếu "
+            "không nói rõ phải làm gì. Mỗi quest nên hoàn thành được trong 15-30 phút và không trùng nhau. "
+            f"Tạo đúng {count} quest phù hợp với hồ sơ sau:\n"
+            f"{json.dumps(context, ensure_ascii=False)}"
         )
         timeout = httpx.Timeout(60.0)
 
@@ -632,7 +638,7 @@ class DailyQuestService:
                             },
                             json={
                                 "systemInstruction": {
-                                    "parts": [{"text": "You create concise Vietnamese learning quests and output JSON only."}],
+                                    "parts": [{"text": "Bạn thiết kế nhiệm vụ học tập rõ ràng, có thể thực hiện và chỉ trả JSON hợp lệ."}],
                                 },
                                 "contents": [
                                     {
@@ -642,7 +648,7 @@ class DailyQuestService:
                                 ],
                                 "generationConfig": {
                                     "temperature": 0.6,
-                                    "maxOutputTokens": 700,
+                                    "maxOutputTokens": 2600,
                                     "responseMimeType": "application/json",
                                     "thinkingConfig": {"thinkingLevel": "low"},
                                     "responseSchema": {
@@ -654,11 +660,27 @@ class DailyQuestService:
                                                     "type": "object",
                                                     "properties": {
                                                         "title": {"type": "string"},
-                                                        "description": {"type": "string"},
+                                                        "objective": {"type": "string"},
+                                                        "steps": {
+                                                            "type": "array",
+                                                            "items": {"type": "string"},
+                                                            "minItems": 3,
+                                                            "maxItems": 4,
+                                                        },
+                                                        "evidence": {"type": "string"},
+                                                        "completion_criteria": {"type": "string"},
                                                         "difficulty": {"type": "string", "enum": ["easy", "medium", "hard"]},
                                                         "xp_reward": {"type": "integer"},
                                                     },
-                                                    "required": ["title", "description", "difficulty", "xp_reward"],
+                                                    "required": [
+                                                        "title",
+                                                        "objective",
+                                                        "steps",
+                                                        "evidence",
+                                                        "completion_criteria",
+                                                        "difficulty",
+                                                        "xp_reward"
+                                                    ],
                                                 },
                                             }
                                         },
@@ -693,7 +715,7 @@ class DailyQuestService:
                     },
                     json={
                         "model": model,
-                        "max_tokens": 900,
+                        "max_tokens": 2600,
                         "temperature": 0.6,
                         "messages": [{"role": "user", "content": prompt}],
                     },
@@ -713,11 +735,12 @@ class DailyQuestService:
                 json={
                     "model": model,
                     "temperature": 0.6,
+                    "max_tokens": 2600,
                     "response_format": {"type": "json_object"},
                     "messages": [
                         {
                             "role": "system",
-                            "content": "You create concise Vietnamese learning quests and output JSON only.",
+                            "content": "Bạn thiết kế nhiệm vụ học tập rõ ràng, có thể thực hiện và chỉ trả JSON hợp lệ.",
                         },
                         {"role": "user", "content": prompt},
                     ],
@@ -748,7 +771,7 @@ class DailyQuestService:
         normalized: List[Dict[str, Any]] = []
         for item in items:
             title = str(item.get("title", "")).strip()
-            description = str(item.get("description", "")).strip()
+            description = self._build_clear_description(item)
             if not title or not description:
                 continue
 
@@ -781,6 +804,42 @@ class DailyQuestService:
             )
         return normalized
 
+    def _build_clear_description(self, item: Dict[str, Any]) -> str:
+        """Convert structured AI output or a legacy description into actionable guidance."""
+        objective = str(item.get("objective") or "").strip()
+        raw_steps = item.get("steps")
+        steps = [str(step).strip() for step in raw_steps] if isinstance(raw_steps, list) else []
+        steps = [step for step in steps if step][:4]
+        evidence = str(item.get("evidence") or "").strip()
+        completion_criteria = str(item.get("completion_criteria") or "").strip()
+
+        if objective and len(steps) >= 2 and evidence and completion_criteria:
+            numbered_steps = "\n".join(f"{index}. {step[:300]}" for index, step in enumerate(steps, start=1))
+            return (
+                f"Mục tiêu:\n{objective[:500]}\n\n"
+                f"Các bước thực hiện:\n{numbered_steps}\n\n"
+                f"Minh chứng cần nộp:\n{evidence[:500]}\n\n"
+                f"Tiêu chí hoàn thành:\n{completion_criteria[:500]}"
+            )
+
+        description = str(item.get("description") or "").strip()
+        if not description:
+            return ""
+        if "Mục tiêu:" in description and "Minh chứng cần nộp:" in description:
+            return description
+
+        return (
+            f"Mục tiêu:\n{description}\n\n"
+            "Các bước thực hiện:\n"
+            "1. Đọc kỹ yêu cầu và xác định kết quả cần tạo.\n"
+            "2. Thực hiện nhiệm vụ trên môi trường học tập của bạn.\n"
+            "3. Kiểm tra kết quả và ghi lại ngắn gọn những gì đã làm.\n\n"
+            "Minh chứng cần nộp:\n"
+            "Viết 2-3 câu mô tả kết quả; đính kèm link hoặc ảnh nếu kết quả có thể xem được.\n\n"
+            "Tiêu chí hoàn thành:\n"
+            "Minh chứng liên quan trực tiếp đến yêu cầu và đủ rõ để người khác kiểm tra."
+        )
+
     def _fallback_items(self, user: User, context: Dict[str, Any], count: int) -> List[Dict[str, Any]]:
         skills = context.get("completed_skills") or []
         roadmap = context.get("roadmap_tasks") or []
@@ -788,22 +847,50 @@ class DailyQuestService:
         templates = [
             {
                 "title": f"Ôn lại {focus}",
-                "description": f"Tóm tắt 3 ý chính bạn đã học về {focus} và ghi lại một điểm còn chưa rõ.",
+                "objective": f"Tạo một bản tóm tắt ngắn về {focus} để xác định phần bạn đã hiểu và phần cần hỏi thêm.",
+                "steps": [
+                    f"Xem lại ghi chú hoặc bài đã làm gần nhất có liên quan đến {focus}.",
+                    "Chọn và viết lại 3 ý quan trọng bằng lời của bạn.",
+                    "Viết thêm 1 câu hỏi về điểm bạn còn chưa rõ.",
+                ],
+                "evidence": "Nhập 3 ý đã tóm tắt và 1 câu hỏi vào ô ghi chú minh chứng.",
+                "completion_criteria": "Có đủ 3 ý đúng chủ đề, diễn đạt bằng lời của bạn và có 1 câu hỏi cụ thể.",
                 "difficulty": DailyQuestDifficulty.EASY,
             },
             {
                 "title": "Hoàn thiện một bước nhỏ trong lộ trình",
-                "description": "Chọn một task phù hợp level hiện tại, đọc yêu cầu và chuẩn bị kế hoạch thực hiện ngắn.",
+                "objective": "Chọn một task phù hợp và tạo kế hoạch đủ rõ để có thể bắt đầu thực hiện ngay.",
+                "steps": [
+                    "Mở tab Có thể làm và chọn một task phù hợp với level hiện tại.",
+                    "Đọc yêu cầu, xác định kết quả cuối cùng và các công cụ cần dùng.",
+                    "Viết kế hoạch gồm 3 bước nhỏ theo đúng thứ tự thực hiện.",
+                ],
+                "evidence": "Nhập tên task và kế hoạch 3 bước vào ô ghi chú; có thể kèm link task hoặc tài liệu.",
+                "completion_criteria": "Kế hoạch nêu rõ task, kết quả cần đạt và 3 bước có thể thực hiện được.",
                 "difficulty": DailyQuestDifficulty.MEDIUM,
             },
             {
                 "title": "Thực hành có minh chứng",
-                "description": "Tạo một kết quả nhỏ có thể kiểm tra được và lưu link minh chứng cho mentor xem lại.",
+                "objective": "Tạo một sản phẩm kỹ thuật nhỏ có thể mở và kiểm tra được.",
+                "steps": [
+                    "Chọn một thao tác kỹ thuật phù hợp với nội dung đang học.",
+                    "Thực hiện thao tác và kiểm tra kết quả chạy đúng như dự kiến.",
+                    "Lưu kết quả bằng link repository, ảnh màn hình hoặc đường dẫn tài liệu.",
+                ],
+                "evidence": "Nộp link hoặc ảnh kết quả, kèm 2-3 câu giải thích bạn đã làm gì và kiểm tra ra sao.",
+                "completion_criteria": "Minh chứng mở được, thể hiện kết quả thực tế và phần giải thích khớp với nội dung đã làm.",
                 "difficulty": DailyQuestDifficulty.HARD,
             },
             {
                 "title": "Củng cố kỹ năng hôm nay",
-                "description": "Viết lại cách bạn sẽ áp dụng kiến thức hôm nay vào một task thật trong lab.",
+                "objective": "Liên hệ một kiến thức vừa học với tình huống thực tế trong dự án hoặc lab.",
+                "steps": [
+                    "Chọn một kiến thức hoặc kỹ năng bạn vừa học gần đây.",
+                    "Nêu một tình huống thật trong dự án có thể áp dụng kiến thức đó.",
+                    "Viết cách áp dụng theo từng bước và kết quả bạn mong đợi.",
+                ],
+                "evidence": "Nhập tên kiến thức, tình huống áp dụng và cách thực hiện vào ô ghi chú minh chứng.",
+                "completion_criteria": "Câu trả lời có kiến thức cụ thể, tình huống phù hợp và cách áp dụng hợp lý.",
                 "difficulty": DailyQuestDifficulty.EASY,
             },
         ]
@@ -815,7 +902,7 @@ class DailyQuestService:
             items.append(
                 {
                     "title": template["title"],
-                    "description": template["description"],
+                    "description": self._build_clear_description(template),
                     "difficulty": difficulty,
                     "xp_reward": self._default_xp(difficulty.value, user.level),
                 }

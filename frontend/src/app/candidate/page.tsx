@@ -4,9 +4,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import { apiClient } from '@/lib/api';
 import { DailyQuest, DailyQuestLimitResponse, DailyQuestListResponse } from '@/types/quest';
 import { Task, UserTask } from '@/types/task';
+import { CheckCircle2, ChevronRight, FileCheck2, Image as ImageIcon, Link2, ListChecks, Sparkles, Target, X } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 type ActiveTab = 'daily-quest' | 'limit-quest' | 'available' | 'my-tasks';
 
@@ -93,6 +94,65 @@ const formatDateTime = (value?: string | null) => {
   return new Date(value).toLocaleString('vi-VN');
 };
 
+type QuestDetailSection = {
+  kind: 'objective' | 'steps' | 'evidence' | 'criteria';
+  title: string;
+  content: string;
+};
+
+const QUEST_SECTION_MATCHERS = [
+  { kind: 'objective' as const, title: 'Bạn cần làm gì?', pattern: /^Mục tiêu:\s*(.*)$/i },
+  { kind: 'steps' as const, title: 'Các bước thực hiện', pattern: /^Các bước thực hiện:\s*(.*)$/i },
+  { kind: 'evidence' as const, title: 'Minh chứng cần nộp', pattern: /^Minh chứng cần nộp:\s*(.*)$/i },
+  { kind: 'criteria' as const, title: 'Khi nào được tính hoàn thành?', pattern: /^Tiêu chí hoàn thành:\s*(.*)$/i },
+];
+
+const parseQuestDetails = (description: string): QuestDetailSection[] => {
+  const lines = description.split('\n').map((line) => line.trim()).filter(Boolean);
+  const sections: QuestDetailSection[] = [];
+  let current: QuestDetailSection | null = null;
+
+  lines.forEach((line) => {
+    const matcher = QUEST_SECTION_MATCHERS.find((item) => item.pattern.test(line));
+    if (matcher) {
+      const inlineContent = line.match(matcher.pattern)?.[1]?.trim() || '';
+      current = { kind: matcher.kind, title: matcher.title, content: inlineContent };
+      sections.push(current);
+      return;
+    }
+
+    if (current) {
+      current.content = current.content ? `${current.content}\n${line}` : line;
+    }
+  });
+
+  if (sections.length > 0) return sections.filter((section) => section.content);
+
+  return [
+    { kind: 'objective', title: 'Bạn cần làm gì?', content: description },
+    {
+      kind: 'steps',
+      title: 'Các bước thực hiện',
+      content: '1. Đọc kỹ yêu cầu và xác định kết quả cần tạo.\n2. Thực hiện nhiệm vụ trên môi trường học tập của bạn.\n3. Kiểm tra kết quả trước khi nộp.',
+    },
+    {
+      kind: 'evidence',
+      title: 'Minh chứng cần nộp',
+      content: 'Viết 2-3 câu nêu bạn đã làm gì và kết quả ra sao. Đính kèm link hoặc ảnh nếu có.',
+    },
+    {
+      kind: 'criteria',
+      title: 'Khi nào được tính hoàn thành?',
+      content: 'Minh chứng phải liên quan trực tiếp đến yêu cầu và đủ rõ để AI kiểm tra.',
+    },
+  ];
+};
+
+const getQuestSummary = (description: string) => {
+  const objective = parseQuestDetails(description).find((section) => section.kind === 'objective');
+  return objective?.content || description;
+};
+
 export default function CandidateDashboard() {
   const { user, isLoading, refreshUser, updateUser } = useAuth();
   const router = useRouter();
@@ -106,14 +166,19 @@ export default function CandidateDashboard() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('daily-quest');
   const [submittingQuestId, setSubmittingQuestId] = useState<string | null>(null);
   const [selectedQuest, setSelectedQuest] = useState<DailyQuest | null>(null);
-  const [now, setNow] = useState(Date.now());
-  const [displayXp, setDisplayXp] = useState(0);
-  const [displayLevel, setDisplayLevel] = useState(1);
+  const [now, setNow] = useState<number | null>(null);
+  const [questStats, setQuestStats] = useState<{ xp: number; level: number } | null>(null);
   const isLearningAccount = Boolean(user?.roles?.includes('candidate') || user?.roles?.includes('member'));
   const canUseAdmin = Boolean(user?.roles?.includes('admin') && !isLearningAccount);
   const canUseMentor = Boolean((user?.roles?.includes('mentor') || user?.roles?.includes('admin')) && !isLearningAccount);
+  const displayXp = questStats?.xp ?? user?.current_xp ?? 0;
+  const displayLevel = questStats?.level ?? (
+    isLearningAccount
+      ? Math.max(1, Math.floor((user?.current_xp || 0) / 100) + 1)
+      : user?.level || 1
+  );
 
-  const applyQuestPayload = (payload: DailyQuestListResponse) => {
+  const applyQuestPayload = useCallback((payload: DailyQuestListResponse) => {
     setDailyQuests(payload.quests);
     setQuestLimit({
       max_quests: payload.max_quests,
@@ -124,36 +189,14 @@ export default function CandidateDashboard() {
       remaining_generation_slots: Math.max(0, payload.max_quests - payload.total),
       reset_at: payload.reset_at,
     });
-  };
-
-  useEffect(() => {
-    if (user) {
-      setDisplayXp(user.current_xp);
-      setDisplayLevel(
-        isLearningAccount
-          ? Math.max(1, Math.floor((user.current_xp || 0) / 100) + 1)
-          : user.level
-      );
-    }
-  }, [user, isLearningAccount]);
+  }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    if (!isLoading && !user) {
-      router.push('/login');
-      return;
-    }
-
-    if (user?.id) {
-      loadData();
-    }
-  }, [isLoading, user?.id, router]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const [availableResult, myTasksResult, questsResult, limitResult] = await Promise.allSettled([
@@ -194,7 +237,18 @@ export default function CandidateDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [applyQuestPayload]);
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.push('/login');
+      return;
+    }
+
+    if (user?.id) {
+      void loadData();
+    }
+  }, [isLoading, user, router, loadData]);
 
   const handleStartTask = async (taskId: string) => {
     try {
@@ -248,8 +302,7 @@ export default function CandidateDashboard() {
         proof_image: form.proofImage,
       });
 
-      setDisplayXp(result.current_xp);
-      setDisplayLevel(result.level);
+      setQuestStats({ xp: result.current_xp, level: result.level });
       updateUser({ current_xp: result.current_xp, level: result.level });
 
       if (result.quest.quest_type === 'limit') {
@@ -283,12 +336,12 @@ export default function CandidateDashboard() {
 
   const inProgressCount = myTasks.filter((task) => task.status === 'in_progress').length;
   const completedCount = myTasks.filter((task) => task.status === 'completed').length;
-  const resetAt = questLimit?.reset_at || dailyQuests[0]?.expires_at || getFallbackResetAt(now);
+  const resetAt = questLimit?.reset_at || dailyQuests[0]?.expires_at || (now ? getFallbackResetAt(now) : null);
   const generatedQuestCount = questLimit?.generated_count ?? dailyQuests.length;
   const maxQuestCount = questLimit?.max_quests ?? 5;
 
   const formatCountdown = () => {
-    if (!resetAt) return '--:--:--';
+    if (!resetAt || now === null) return '--:--:--';
     const resetTime = new Date(resetAt).getTime();
     if (Number.isNaN(resetTime)) return '--:--:--';
     const diff = Math.max(0, resetTime - now);
@@ -316,11 +369,11 @@ export default function CandidateDashboard() {
       key={quest.id}
       type="button"
       onClick={() => setSelectedQuest(quest)}
-      className="relative aspect-square min-h-[180px] overflow-hidden rounded-lg border border-gray-200 bg-white p-4 pb-11 text-left hover:border-[#1E90FF]/70 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-[#1E90FF] transition-all"
+      className="group relative aspect-square min-h-[210px] overflow-hidden rounded-lg border border-gray-200 bg-white p-4 pb-12 text-left hover:border-[#1E90FF]/70 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#1E90FF] transition-all"
     >
-      <div className="h-full overflow-hidden">
-        <div>
-          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+      <div className="h-full overflow-hidden pr-1">
+        <div className="mb-3 flex items-start justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <span className={`px-2 py-0.5 text-xs font-medium rounded ${DIFFICULTY_COLORS[quest.difficulty]}`}>
               {QUEST_DIFFICULTY_LABELS[quest.difficulty]}
             </span>
@@ -328,9 +381,10 @@ export default function CandidateDashboard() {
               {QUEST_STATUS_LABELS[quest.status]}
             </span>
           </div>
-          <h3 className="line-clamp-2 text-sm font-semibold text-gray-900">{quest.title}</h3>
-          <p className="mt-1.5 line-clamp-2 text-xs text-gray-500">{quest.description}</p>
+          <ChevronRight className="h-4 w-4 flex-none text-gray-400 transition-transform group-hover:translate-x-0.5 group-hover:text-[#1E90FF]" />
         </div>
+        <h3 className="line-clamp-2 text-base font-semibold text-gray-900">{quest.title}</h3>
+        <p className="mt-2 line-clamp-4 text-sm leading-5 text-gray-600">{getQuestSummary(quest.description)}</p>
       </div>
       <div className="absolute inset-x-4 bottom-3 flex items-end justify-between gap-2 bg-white">
         <span className="text-sm font-semibold text-emerald-600">+{quest.xp_reward} XP</span>
@@ -346,39 +400,54 @@ export default function CandidateDashboard() {
     const isSubmitting = submittingQuestId === quest.id;
     const form = getQuestForm(quest.id);
 
+    const detailSections = parseQuestDetails(quest.description);
+
+    const sectionIcon = (kind: QuestDetailSection['kind']) => {
+      if (kind === 'objective') return <Target className="h-5 w-5" />;
+      if (kind === 'steps') return <ListChecks className="h-5 w-5" />;
+      if (kind === 'evidence') return <FileCheck2 className="h-5 w-5" />;
+      return <CheckCircle2 className="h-5 w-5" />;
+    };
+
     return (
-      <div key={quest.id} className="border border-gray-200 rounded-lg p-4 hover:border-[#1E90FF]/50 hover:shadow-sm transition-all">
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-            <div className="flex-1 min-w-0">
-              <div className="flex flex-wrap items-center gap-2 mb-2">
-                <span className={`px-2 py-0.5 text-xs font-medium rounded ${DIFFICULTY_COLORS[quest.difficulty]}`}>
-                  {QUEST_DIFFICULTY_LABELS[quest.difficulty]}
-                </span>
-                <span className={`px-2 py-0.5 text-xs font-medium rounded ${QUEST_STATUS_COLORS[quest.status]}`}>
-                  {QUEST_STATUS_LABELS[quest.status]}
-                </span>
-                <span className="text-xs font-medium text-emerald-600">+{quest.xp_reward} XP</span>
+      <div key={quest.id} className="space-y-5">
+        <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 pb-4">
+          <span className={`px-2 py-1 text-xs font-medium rounded ${DIFFICULTY_COLORS[quest.difficulty]}`}>
+            {QUEST_DIFFICULTY_LABELS[quest.difficulty]}
+          </span>
+          <span className={`px-2 py-1 text-xs font-medium rounded ${QUEST_STATUS_COLORS[quest.status]}`}>
+            {QUEST_STATUS_LABELS[quest.status]}
+          </span>
+          <span className="text-sm font-semibold text-emerald-600">+{quest.xp_reward} XP</span>
+          <span className="text-xs text-gray-500">Cần đạt {quest.auto_pass_score}/100</span>
+          <span className="ml-0 text-xs text-gray-500 sm:ml-auto">Hết hạn: {formatDateTime(quest.expires_at)}</span>
+        </div>
+
+        <div className="divide-y divide-gray-100 border-y border-gray-100">
+          {detailSections.map((section) => (
+            <section key={section.kind} className="grid gap-2 py-4 sm:grid-cols-[180px_1fr] sm:gap-5">
+              <div className="flex items-center gap-2 font-medium text-gray-900">
+                <span className="text-[#1E90FF]">{sectionIcon(section.kind)}</span>
+                <h3 className="text-sm">{section.title}</h3>
               </div>
-              <h3 className="text-base font-medium text-gray-900 mb-1">{quest.title}</h3>
-              <p className="text-sm text-gray-600 mb-3">{quest.description}</p>
-              <div className="flex flex-wrap gap-3 text-xs text-gray-500">
-                <span>Hết hạn: {formatDateTime(quest.expires_at)}</span>
-                {quest.ai_score !== null && quest.ai_score !== undefined && (
-                  <span>AI score: {quest.ai_score.toFixed(1)}</span>
-                )}
-              </div>
-            </div>
-          </div>
+              <p className="whitespace-pre-line text-sm leading-6 text-gray-700">{section.content}</p>
+            </section>
+          ))}
+        </div>
 
           {quest.ai_feedback && (
-            <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-sm text-slate-700">
-              {quest.ai_feedback}
+            <div className={`border-l-4 px-4 py-3 text-sm ${quest.status === 'rejected' ? 'border-red-400 bg-red-50 text-red-800' : 'border-violet-400 bg-violet-50 text-violet-800'}`}>
+              <p className="font-semibold">{quest.status === 'rejected' ? 'AI nhận xét - bạn cần bổ sung' : 'AI nhận xét'}</p>
+              <p className="mt-1 leading-5">{quest.ai_feedback}</p>
+              {quest.ai_score !== null && quest.ai_score !== undefined && (
+                <p className="mt-2 font-medium">Điểm hiện tại: {quest.ai_score.toFixed(1)}/100</p>
+              )}
             </div>
           )}
 
           {quest.proof_link && (
-            <a href={quest.proof_link} target="_blank" rel="noopener noreferrer" className="text-sm text-[#1E90FF] hover:underline truncate">
+            <a href={quest.proof_link} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 truncate text-sm text-[#1E90FF] hover:underline">
+              <Link2 className="h-4 w-4 flex-none" />
               {quest.proof_link}
             </a>
           )}
@@ -387,26 +456,29 @@ export default function CandidateDashboard() {
             <button
               type="button"
               onClick={() => apiClient.viewQuestProof(quest.id, quest.proof_image_name || 'quest-proof')}
-              className="text-sm text-[#1E90FF] hover:underline"
+              className="flex items-center gap-2 text-sm text-[#1E90FF] hover:underline"
             >
+              <ImageIcon className="h-4 w-4" />
               {quest.proof_image_name || 'Ảnh minh chứng'}
             </button>
           )}
 
           {canSubmit ? (
-            <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end">
+            <div className="grid gap-4 border-t border-gray-100 pt-5 md:grid-cols-[1fr_1fr]">
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Ghi chú minh chứng</label>
+                <label className="mb-1 block text-sm font-medium text-gray-800">Ghi chú minh chứng</label>
                 <textarea
                   value={form.proofText}
                   onChange={(event) => updateQuestForm(quest.id, { proofText: event.target.value })}
-                  rows={2}
+                  rows={5}
+                  placeholder="Nêu rõ bạn đã làm gì, kết quả nhận được và cách bạn kiểm tra kết quả..."
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1E90FF] focus:border-[#1E90FF] text-sm"
                 />
+                <p className="mt-1 text-xs text-gray-500">Nên viết ít nhất 2-3 câu và bám sát phần minh chứng cần nộp.</p>
               </div>
               <div className="space-y-2">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Link minh chứng</label>
+                  <label className="mb-1 block text-sm font-medium text-gray-800">Link minh chứng</label>
                   <input
                     type="url"
                     value={form.proofLink}
@@ -416,7 +488,7 @@ export default function CandidateDashboard() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                  <label className="mb-1 block text-sm font-medium text-gray-800">
                     Ảnh minh chứng{quest.requires_image_proof ? ' *' : ''}
                   </label>
                   <input
@@ -426,21 +498,21 @@ export default function CandidateDashboard() {
                     className="block w-full text-xs text-gray-600 file:mr-3 file:px-3 file:py-1.5 file:rounded-md file:border-0 file:bg-slate-100 file:text-slate-700"
                   />
                 </div>
+                <button
+                  onClick={() => handleSubmitQuestProof(quest)}
+                  disabled={isSubmitting}
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-[#32CD32] px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#22c55e] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  {isSubmitting ? 'AI đang chấm...' : quest.status === 'rejected' ? 'Nộp lại minh chứng' : 'Nộp minh chứng'}
+                </button>
               </div>
-              <button
-                onClick={() => handleSubmitQuestProof(quest)}
-                disabled={isSubmitting}
-                className="w-full md:w-auto px-4 py-2.5 rounded-lg text-sm font-medium transition-colors bg-[#32CD32] text-white hover:bg-[#22c55e] disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
-              >
-                {isSubmitting ? 'AI đang chấm...' : 'Nộp minh chứng'}
-              </button>
             </div>
           ) : (
             <div className="text-sm text-gray-500">
               {quest.status === 'completed' ? 'Quest đã hoàn thành.' : quest.status === 'expired' ? 'Quest đã hết hạn.' : 'Minh chứng đang được xử lý.'}
             </div>
           )}
-        </div>
       </div>
     );
   };
@@ -535,7 +607,7 @@ export default function CandidateDashboard() {
                 {dailyQuests.length === 0 ? (
                   <div className="text-center py-12 text-gray-500">Chưa có Daily Quest hôm nay</div>
                 ) : (
-                  <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                     {dailyQuests.map(renderQuestTile)}
                   </div>
                 )}
@@ -551,7 +623,7 @@ export default function CandidateDashboard() {
                 {limitQuests.length === 0 ? (
                   <div className="text-center py-12 text-gray-500">Chưa có Limit Quest được giao</div>
                 ) : (
-                  <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                     {limitQuests.map(renderQuestTile)}
                   </div>
                 )}
@@ -695,7 +767,7 @@ export default function CandidateDashboard() {
 
       {selectedQuest && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setSelectedQuest(null)}>
-          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
+          <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-100 bg-white px-5 py-4">
               <div>
                 <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
@@ -705,9 +777,11 @@ export default function CandidateDashboard() {
               </div>
               <button
                 onClick={() => setSelectedQuest(null)}
-                className="rounded-lg px-3 py-2 text-sm text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                aria-label="Đóng chi tiết quest"
+                title="Đóng"
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900"
               >
-                Đóng
+                <X className="h-5 w-5" />
               </button>
             </div>
             <div className="p-5">
