@@ -153,6 +153,19 @@ const getQuestSummary = (description: string) => {
   return objective?.content || description;
 };
 
+type QuestAnswerMode = 'multiple_choice' | 'coding' | 'written';
+
+const getQuestAnswerMode = (quest: DailyQuest): QuestAnswerMode => {
+  const content = `${quest.title}\n${quest.description}`;
+  if ([...'ABCD'].every((option) => new RegExp(`(?:^|\\n)\\s*${option}[.)]\\s+`, 'i').test(content))) {
+    return 'multiple_choice';
+  }
+  if (/\binput\s*:|\boutput\s*:|viết hàm|thuật toán|\bcode\s*:/i.test(content)) {
+    return 'coding';
+  }
+  return 'written';
+};
+
 export default function CandidateDashboard() {
   const { user, isLoading, refreshUser, updateUser } = useAuth();
   const router = useRouter();
@@ -401,6 +414,18 @@ export default function CandidateDashboard() {
     const form = getQuestForm(quest.id);
 
     const detailSections = parseQuestDetails(quest.description);
+    const answerMode = getQuestAnswerMode(quest);
+    const answerLabel = answerMode === 'coding' ? 'Code và kết quả chạy thử' : answerMode === 'multiple_choice' ? 'Đáp án của bạn' : 'Câu trả lời của bạn';
+    const answerPlaceholder = answerMode === 'coding'
+      ? 'Dán code ở đây...\n\nTest case 1: ...\nKết quả: ...\nĐộ phức tạp: ...'
+      : answerMode === 'multiple_choice'
+        ? 'Đáp án: B\nGiải thích: Tôi chọn B vì...'
+        : 'Trả lời trực tiếp tình huống, nêu cách xử lý và lý do bạn chọn phương án đó...';
+    const answerHint = answerMode === 'coding'
+      ? 'Có thể viết bằng JavaScript, TypeScript, Python, Java hoặc C#. Hãy kèm test case để AI chấm chính xác.'
+      : answerMode === 'multiple_choice'
+        ? 'Chọn một đáp án A-D và giải thích ngắn để nhận điểm lập luận.'
+        : 'Trả lời đúng trọng tâm đề bài; nên nêu cả cách làm và lý do.';
 
     const sectionIcon = (kind: QuestDetailSection['kind']) => {
       if (kind === 'objective') return <Target className="h-5 w-5" />;
@@ -466,15 +491,16 @@ export default function CandidateDashboard() {
           {canSubmit ? (
             <div className="grid gap-4 border-t border-gray-100 pt-5 md:grid-cols-[1fr_1fr]">
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-800">Ghi chú minh chứng</label>
+                <label className="mb-1 block text-sm font-medium text-gray-800">{answerLabel}</label>
                 <textarea
                   value={form.proofText}
                   onChange={(event) => updateQuestForm(quest.id, { proofText: event.target.value })}
-                  rows={5}
-                  placeholder="Nêu rõ bạn đã làm gì, kết quả nhận được và cách bạn kiểm tra kết quả..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1E90FF] focus:border-[#1E90FF] text-sm"
+                  rows={answerMode === 'coding' ? 12 : 6}
+                  spellCheck={answerMode !== 'coding'}
+                  placeholder={answerPlaceholder}
+                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1E90FF] focus:border-[#1E90FF] text-sm ${answerMode === 'coding' ? 'font-mono' : ''}`}
                 />
-                <p className="mt-1 text-xs text-gray-500">Nên viết ít nhất 2-3 câu và bám sát phần minh chứng cần nộp.</p>
+                <p className="mt-1 text-xs leading-5 text-gray-500">{answerHint}</p>
               </div>
               <div className="space-y-2">
                 <div>
