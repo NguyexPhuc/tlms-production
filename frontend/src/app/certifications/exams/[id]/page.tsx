@@ -16,7 +16,7 @@ export default function CertificationExamPage({ params }: { params: Promise<{ id
   const [attempt, setAttempt] = useState<ExamAttempt | null>(null);
   const [answers, setAnswers] = useState<Record<string, string[] | string>>({});
   const [result, setResult] = useState<ExamResult | null>(null);
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');

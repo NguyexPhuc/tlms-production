@@ -4,9 +4,10 @@ Background Tasks Service - Automatic schedule synchronization
 import asyncio
 import logging
 import pytz
+import re
 from datetime import date, datetime, timedelta
 from typing import Any, Awaitable, Callable, Dict, Optional
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -15,7 +16,7 @@ from apscheduler.triggers.date import DateTrigger
 
 from app.core.config import get_settings
 from app.core.database import AsyncSessionLocal
-from app.models.user import User
+from app.models.user import User, UserRole, UserStatus
 from app.services.cup import weekly_cup_service
 from app.services.quest import daily_quest_service
 from app.services.schedule import schedule_service
@@ -30,6 +31,14 @@ VN_TIMEZONE = pytz.timezone('Asia/Ho_Chi_Minh')
 
 # Global scheduler instance with Vietnam timezone
 scheduler = AsyncIOScheduler(timezone=VN_TIMEZONE)
+
+
+def _is_syncable_student_id(student_id: Optional[str]) -> bool:
+    """Reject empty and known local/demo identifiers before calling LHU."""
+    normalized = (student_id or "").strip()
+    if not normalized:
+        return False
+    return re.fullmatch(r"(?:TLMS|DEMO|TEST)\d+", normalized, re.IGNORECASE) is None
 
 
 async def _run_with_retry(
@@ -62,7 +71,7 @@ async def _sync_all_user_schedules_for_week(
     force_update: bool = True,
     source: str = "system"
 ) -> Dict[str, Any]:
-    """Sync schedules for all users having student_id for a specific week."""
+    """Sync schedules for active learners having a real student ID."""
     logger.info(
         "Starting %s schedule sync for week %s...",
         source,
@@ -88,10 +97,18 @@ async def _sync_all_user_schedules_for_week(
             result = await list_session.execute(
                 select(User).where(
                     User.student_id.isnot(None),
-                    User.student_id != ""
+                    User.student_id != "",
+                    User.status == UserStatus.ACTIVE,
+                    or_(
+                        User.roles.any(UserRole.CANDIDATE.value),
+                        User.roles.any(UserRole.MEMBER.value),
+                    ),
                 )
             )
-            users_to_sync = result.scalars().all()
+            users_to_sync = [
+                user for user in result.scalars().all()
+                if _is_syncable_student_id(user.student_id)
+            ]
 
         total_users = len(users_to_sync)
         logger.info("Found %s users with student IDs to sync", total_users)

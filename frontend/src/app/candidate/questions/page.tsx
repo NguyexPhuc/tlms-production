@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api';
@@ -46,17 +46,7 @@ export default function QuestionsPage() {
 
   const canManage = user?.roles?.includes('mentor') || user?.roles?.includes('admin');
 
-  useEffect(() => {
-    if (!isLoading && !user) {
-      router.push('/login');
-      return;
-    }
-    if (user) {
-      loadData();
-    }
-  }, [isLoading, user, router]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const [questionData, answerData] = await Promise.all([
@@ -75,7 +65,15 @@ export default function QuestionsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [canManage]);
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.push('/login');
+      return;
+    }
+    if (user) void loadData();
+  }, [isLoading, user, router, loadData]);
 
   const submitAnswer = async () => {
     if (!selectedQuestion || !answerText.trim()) return;

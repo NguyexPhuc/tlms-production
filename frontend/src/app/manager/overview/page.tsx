@@ -107,21 +107,6 @@ export default function ManagerOverviewPage() {
     }
   }, [weekStart]);
 
-  // Highlight matching text
-  const highlightMatch = (text: string | null | undefined, searchQuery: string) => {
-    if (!text || !searchQuery.trim()) return text;
-    
-    const searchWords = searchQuery.toLowerCase().trim().split(/\s+/).filter(w => w.length > 0);
-    let highlighted = text;
-    
-    searchWords.forEach(word => {
-      const regex = new RegExp(`(${word})`, 'gi');
-      highlighted = highlighted.replace(regex, '<mark class="bg-yellow-200 text-gray-900 font-medium">$1</mark>');
-    });
-    
-    return <span dangerouslySetInnerHTML={{ __html: highlighted }} />;
-  };
-
   const loadUserTasks = async (userId: string) => {
     try {
       setLoadingTasks(true);

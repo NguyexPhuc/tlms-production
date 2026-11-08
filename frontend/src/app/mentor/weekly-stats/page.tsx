@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiClient } from '@/lib/api';
@@ -47,29 +47,19 @@ export default function DashboardVisualizePage() {
     return new Date(now.setDate(diff));
   });
 
-  useEffect(() => {
-    if (!isLoading && currentUser) {
-      if (!currentUser.roles.includes('mentor') && !currentUser.roles.includes('admin')) {
-        router.push('/dashboard');
-        return;
-      }
-      loadUsers();
-    }
-  }, [isLoading, currentUser, router]);
-
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     try {
       const response = await apiClient.getUsers({ page_size: 1000 });
       setUsers(response.users || []);
     } catch (error) {
       console.error('Failed to load users:', error);
     }
-  };
+  }, []);
 
-  const loadUserStats = async (userId: string) => {
+  const loadUserStats = useCallback(async (userId: string, weekStart = currentWeekStart) => {
     try {
       setLoading(true);
-      const weekStartStr = currentWeekStart.toISOString().split('T')[0];
+      const weekStartStr = weekStart.toISOString().split('T')[0];
       const data = await apiClient.getUserStats(userId, weekStartStr);
       setStats(data);
     } catch (error) {
@@ -78,14 +68,24 @@ export default function DashboardVisualizePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentWeekStart]);
+
+  useEffect(() => {
+    if (!isLoading && currentUser) {
+      if (!currentUser.roles.includes('mentor') && !currentUser.roles.includes('admin')) {
+        router.push('/dashboard');
+        return;
+      }
+      void loadUsers();
+    }
+  }, [isLoading, currentUser, router, loadUsers]);
 
   const previousWeek = () => {
     const newWeekStart = new Date(currentWeekStart);
     newWeekStart.setDate(currentWeekStart.getDate() - 7);
     setCurrentWeekStart(newWeekStart);
     if (selectedUserId) {
-      loadUserStats(selectedUserId);
+      void loadUserStats(selectedUserId, newWeekStart);
     }
   };
 
@@ -94,7 +94,7 @@ export default function DashboardVisualizePage() {
     newWeekStart.setDate(currentWeekStart.getDate() + 7);
     setCurrentWeekStart(newWeekStart);
     if (selectedUserId) {
-      loadUserStats(selectedUserId);
+      void loadUserStats(selectedUserId, newWeekStart);
     }
   };
 
@@ -103,7 +103,7 @@ export default function DashboardVisualizePage() {
 
   const handleUserSelect = (userId: string) => {
     setSelectedUserId(userId);
-    loadUserStats(userId);
+    void loadUserStats(userId);
   };
 
   const filteredUsers = users.filter(u =>

@@ -2,7 +2,7 @@
 
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { apiClient } from '@/lib/api';
 import { UserTask } from '@/types/task';
 import Link from 'next/link';
@@ -16,6 +16,18 @@ export default function MentorDashboard() {
   const [comment, setComment] = useState('');
   const [score, setScore] = useState('');
 
+  const loadPendingReviews = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await apiClient.getPendingReviews();
+      setPendingReviews(data.tasks);
+    } catch (error) {
+      console.error('Failed to load pending reviews:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!isLoading && !user) {
       router.push('/login');
@@ -27,21 +39,9 @@ export default function MentorDashboard() {
         router.push('/dashboard');
         return;
       }
-      loadPendingReviews();
+      void loadPendingReviews();
     }
-  }, [isLoading, user, router]);
-
-  const loadPendingReviews = async () => {
-    try {
-      setLoading(true);
-      const data = await apiClient.getPendingReviews();
-      setPendingReviews(data.tasks);
-    } catch (error) {
-      console.error('Failed to load pending reviews:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [isLoading, user, router, loadPendingReviews]);
 
   const handleReview = async (userTaskId: string, approved: boolean) => {
     if (!comment.trim() && !approved) {

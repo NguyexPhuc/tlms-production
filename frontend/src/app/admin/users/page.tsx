@@ -108,7 +108,7 @@ export default function AdminUsersPage() {
     }
   }, []);
 
-  const hasRole = (role: string) => user?.roles?.includes(role as any) ?? false;
+  const isAdmin = user?.roles?.includes('admin') ?? false;
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -116,17 +116,17 @@ export default function AdminUsersPage() {
       return;
     }
     
-    if (user && !hasRole('admin')) {
+    if (user && !isAdmin) {
       setError('Chỉ Admin mới có quyền truy cập trang này');
       setLoading(false);
       return;
     }
     
-    if (user && hasRole('admin')) {
+    if (user && isAdmin) {
       fetchUsers();
       fetchStats();
     }
-  }, [user, authLoading, router, fetchUsers, fetchStats]);
+  }, [user, authLoading, router, fetchUsers, fetchStats, isAdmin]);
 
   const handleEditUser = (u: User) => {
     setEditingUser(u);
@@ -356,7 +356,7 @@ export default function AdminUsersPage() {
     );
   }
 
-  if (!user || !hasRole('admin')) {
+  if (!user || !isAdmin) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
         <div className="bg-white border border-red-200 rounded-xl p-6 max-w-md w-full shadow-sm">

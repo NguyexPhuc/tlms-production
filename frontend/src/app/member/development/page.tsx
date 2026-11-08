@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -59,15 +59,7 @@ export default function MemberDevelopmentPage() {
   const [busyTask, setBusyTask] = useState<string | null>(null);
   const [message, setMessage] = useState('');
 
-  useEffect(() => {
-    if (!isLoading && !user) {
-      router.push('/login');
-      return;
-    }
-    if (user) void loadDashboard();
-  }, [isLoading, user, router]);
-
-  const loadDashboard = async () => {
+  const loadDashboard = useCallback(async () => {
     try {
       setLoading(true);
       setDashboard(await apiClient.getDevelopmentDashboard());
@@ -78,7 +70,15 @@ export default function MemberDevelopmentPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.push('/login');
+      return;
+    }
+    if (user) void loadDashboard();
+  }, [isLoading, user, router, loadDashboard]);
 
   const handleStart = async (task: UserTask) => {
     try {

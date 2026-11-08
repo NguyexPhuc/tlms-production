@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api';
 import { TaskCreatorType, TaskScope, TaskType, TaskDifficulty } from '@/types/task';
@@ -46,12 +46,7 @@ export default function CreateTaskPage() {
     requires_manager_review: true
   });
 
-  useEffect(() => {
-    // Load users for private task assignment
-    loadUsers();
-  }, []);
-
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     try {
       const res = await apiClient.getUsers({ page_size: 100 });
       setUsers(res.users || []);
@@ -59,7 +54,11 @@ export default function CreateTaskPage() {
       console.error('Failed to load users', error);
       // Fail silently if not admin, or just empty list
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void loadUsers();
+  }, [loadUsers]);
 
   const isAdmin = Boolean(user?.roles?.includes('admin'));
   const isLimitQuest = formData.creation_kind === 'limit_quest';

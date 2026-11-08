@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api';
@@ -33,21 +33,7 @@ export default function ManagerDevelopmentPage() {
 
   const canAccess = user?.roles?.includes('mentor') || user?.roles?.includes('admin');
 
-  useEffect(() => {
-    if (!isLoading && !user) {
-      router.push('/login');
-      return;
-    }
-    if (user && !canAccess) {
-      router.push('/dashboard');
-      return;
-    }
-    if (user && canAccess) {
-      loadData();
-    }
-  }, [isLoading, user, canAccess, router]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const [summaryData, promotionData] = await Promise.all([
@@ -61,7 +47,19 @@ export default function ManagerDevelopmentPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.push('/login');
+      return;
+    }
+    if (user && !canAccess) {
+      router.push('/dashboard');
+      return;
+    }
+    if (user && canAccess) void loadData();
+  }, [isLoading, user, canAccess, router, loadData]);
 
   const handleAssignDailyTasks = async () => {
     try {

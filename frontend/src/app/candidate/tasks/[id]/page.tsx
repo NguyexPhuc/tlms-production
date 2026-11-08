@@ -2,7 +2,7 @@
 
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState, use } from 'react';
+import { useCallback, useEffect, useState, use } from 'react';
 import { apiClient } from '@/lib/api';
 import { UserTask } from '@/types/task';
 import Link from 'next/link';
@@ -21,40 +21,18 @@ export default function SubmitTaskPage({ params }: { params: Promise<{ id: strin
   const [progressPercentage, setProgressPercentage] = useState(0);
   const [evidenceLinks, setEvidenceLinks] = useState('');
 
-  useEffect(() => {
-    if (!isLoading && !user) {
-      router.push('/login');
-      return;
-    }
-
-    if (user) {
-      loadTask();
-    }
-  }, [isLoading, user, router, resolvedParams.id]);
-
-  const loadTask = async () => {
+  const loadTask = useCallback(async () => {
     try {
       setLoading(true);
-      console.log('Loading task with ID:', resolvedParams.id);
-      
       const myTasksResponse = await apiClient.getMyTasks();
-      console.log('My tasks response:', myTasksResponse);
-      console.log('Number of tasks:', myTasksResponse.tasks.length);
-      
-      const task = myTasksResponse.tasks.find(t => {
-        const match = t.id === resolvedParams.id;
-        console.log(`Comparing task ID: ${t.id} === ${resolvedParams.id} = ${match}`);
-        return match;
-      });
+      const task = myTasksResponse.tasks.find((item) => item.id === resolvedParams.id);
 
       if (!task) {
-        console.error('Task not found. Available task IDs:', myTasksResponse.tasks.map(t => t.id));
         alert('Task not found. Please make sure you have started this task first.');
         router.push('/candidate');
         return;
       }
 
-      console.log('Task found:', task);
       setUserTask(task);
       if (task.proof_link) {
         setProofLink(task.proof_link);
@@ -73,7 +51,18 @@ export default function SubmitTaskPage({ params }: { params: Promise<{ id: strin
     } finally {
       setLoading(false);
     }
-  };
+  }, [resolvedParams.id, router]);
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.push('/login');
+      return;
+    }
+
+    if (user) {
+      void loadTask();
+    }
+  }, [isLoading, user, router, loadTask]);
 
   const handleSaveProgress = async () => {
     try {

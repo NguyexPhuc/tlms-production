@@ -3,6 +3,22 @@ import pytest
 from app.services import background_tasks
 
 
+@pytest.mark.parametrize(
+    ("student_id", "expected"),
+    [
+        (None, False),
+        ("", False),
+        (" TLMS0004 ", False),
+        ("demo123", False),
+        ("TEST99", False),
+        ("123000529", True),
+        ("20ABC123", True),
+    ],
+)
+def test_schedule_sync_rejects_local_demo_student_ids(student_id, expected):
+    assert background_tasks._is_syncable_student_id(student_id) is expected
+
+
 @pytest.mark.asyncio
 async def test_background_job_retries_transient_failure(monkeypatch):
     attempts = 0

@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { apiClient } from '@/lib/api';
-import { TaskDetailResponse, TaskParticipant, TaskStatus } from '@/types/task';
+import { TaskDetailResponse } from '@/types/task';
 import Link from 'next/link';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -32,11 +32,7 @@ export default function TaskVisualizationPage() {
   const [taskDetail, setTaskDetail] = useState<TaskDetailResponse | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>('all');
 
-  useEffect(() => {
-    loadTaskDetails();
-  }, []);
-
-  const loadTaskDetails = async () => {
+  const loadTaskDetails = useCallback(async () => {
     try {
       setLoading(true);
       const data = await apiClient.getTaskDetails(taskId);
@@ -48,7 +44,11 @@ export default function TaskVisualizationPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [router, taskId]);
+
+  useEffect(() => {
+    void loadTaskDetails();
+  }, [loadTaskDetails]);
 
   if (loading || !taskDetail) {
     return (

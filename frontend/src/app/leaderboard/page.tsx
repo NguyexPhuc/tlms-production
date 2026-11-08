@@ -2,9 +2,9 @@
 
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { apiClient } from '@/lib/api';
-import { LeaderboardEntry, LeaderboardResponse, UserRankInfo } from '@/types/leaderboard';
+import { LeaderboardResponse, UserRankInfo } from '@/types/leaderboard';
 
 const ROLE_LABELS: Record<string, string> = {
   candidate: 'Thực tập sinh',
@@ -21,18 +21,7 @@ export default function LeaderboardPage() {
   const [loading, setLoading] = useState(true);
   const [roleFilter, setRoleFilter] = useState<string>('');
 
-  useEffect(() => {
-    if (!isLoading && !user) {
-      router.push('/login');
-      return;
-    }
-
-    if (user) {
-      loadData();
-    }
-  }, [isLoading, user, router, roleFilter]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const params = roleFilter ? { role: roleFilter, limit: 100 } : { limit: 100 };
@@ -47,7 +36,16 @@ export default function LeaderboardPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [roleFilter]);
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.push('/login');
+      return;
+    }
+
+    if (user) void loadData();
+  }, [isLoading, user, router, loadData]);
 
   if (isLoading || !user) {
     return (

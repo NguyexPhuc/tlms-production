@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { apiClient } from '@/lib/api';
-import { Task, TaskScope, TaskType, TaskDifficulty } from '@/types/task';
+import { TaskScope, TaskType, TaskDifficulty } from '@/types/task';
 import { User } from '@/types';
 import Link from 'next/link';
 
@@ -31,12 +31,7 @@ export default function EditTaskPage() {
     reference_links: ''
   });
 
-  useEffect(() => {
-    loadTask();
-    loadUsers();
-  }, []);
-
-  const loadTask = async () => {
+  const loadTask = useCallback(async () => {
     try {
       setFetchingTask(true);
       const task = await apiClient.getTask(taskId);
@@ -61,16 +56,20 @@ export default function EditTaskPage() {
     } finally {
       setFetchingTask(false);
     }
-  };
+  }, [router, taskId]);
 
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     try {
       const res = await apiClient.getUsers({ page_size: 100 });
       setUsers(res.users || []);
     } catch (error) {
       console.error('Failed to load users', error);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void Promise.all([loadTask(), loadUsers()]);
+  }, [loadTask, loadUsers]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -180,7 +179,7 @@ export default function EditTaskPage() {
                             name="scope"
                             value="mandatory"
                             checked={formData.scope === 'mandatory'}
-                            onChange={e => setFormData({...formData, scope: 'mandatory' as TaskScope})}
+                            onChange={() => setFormData({...formData, scope: 'mandatory' as TaskScope})}
                             className="mr-2 text-violet-600"
                         />
                         <span className="font-semibold">Bắt buộc (Toàn bộ)</span>
@@ -193,7 +192,7 @@ export default function EditTaskPage() {
                             name="scope"
                             value="opt_in"
                             checked={formData.scope === 'opt_in'}
-                            onChange={e => setFormData({...formData, scope: 'opt_in' as TaskScope})}
+                            onChange={() => setFormData({...formData, scope: 'opt_in' as TaskScope})}
                             className="mr-2 text-cyan-600"
                         />
                         <span className="font-semibold">Đăng ký (Opt-in)</span>
@@ -206,7 +205,7 @@ export default function EditTaskPage() {
                             name="scope"
                             value="private"
                             checked={formData.scope === 'private'}
-                            onChange={e => setFormData({...formData, scope: 'private' as TaskScope})}
+                            onChange={() => setFormData({...formData, scope: 'private' as TaskScope})}
                             className="mr-2 text-amber-600"
                         />
                         <span className="font-semibold">Riêng tư (Private)</span>

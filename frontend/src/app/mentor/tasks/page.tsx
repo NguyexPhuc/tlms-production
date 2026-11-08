@@ -2,7 +2,7 @@
 
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { apiClient } from '@/lib/api';
 import { Task, TaskListResponse } from '@/types/task';
 import Link from 'next/link';
@@ -15,25 +15,10 @@ export default function MentorTasksPage() {
   const [filter, setFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [typeFilter, setTypeFilter] = useState<'all' | 'core' | 'bounty'>('all');
 
-  useEffect(() => {
-    if (!isLoading && !user) {
-      router.push('/login');
-      return;
-    }
-
-    if (user) {
-      if (!user.roles.includes('mentor') && !user.roles.includes('admin')) {
-        router.push('/dashboard');
-        return;
-      }
-      loadTasks();
-    }
-  }, [isLoading, user, router]);
-
-  const loadTasks = async () => {
+  const loadTasks = useCallback(async () => {
     try {
       setLoading(true);
-      const params: any = { page_size: 100 };
+      const params: { page_size: number; is_active?: boolean; task_type?: 'core' | 'bounty' } = { page_size: 100 };
       if (filter === 'active' || filter === 'inactive') {
         params.is_active = filter === 'active';
       }
@@ -47,7 +32,22 @@ export default function MentorTasksPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filter, typeFilter]);
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.push('/login');
+      return;
+    }
+
+    if (user) {
+      if (!user.roles.includes('mentor') && !user.roles.includes('admin')) {
+        router.push('/dashboard');
+        return;
+      }
+      void loadTasks();
+    }
+  }, [isLoading, user, router, loadTasks]);
 
   const handleDelete = async (taskId: string, taskTitle: string) => {
     if (!confirm(`Bạn có chắc chắn muốn xóa task "${taskTitle}"? Hành động này không thể hoàn tác.`)) {

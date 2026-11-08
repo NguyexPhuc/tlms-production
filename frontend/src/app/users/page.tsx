@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiClient } from '@/lib/api';
 import { User, UserListResponse } from '@/types';
-import Link from 'next/link';
 
 const ROLE_COLORS: Record<string, string> = {
   admin: 'bg-red-100 text-red-700 border-red-200',

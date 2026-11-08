@@ -110,6 +110,18 @@ app.add_middleware(
     expose_headers=["*"]
 )
 
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if settings.APP_ENV.lower() == "production":
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
+
 # Exception handlers
 @app.exception_handler(S4HServiceUnavailableException)
 async def s4h_unavailable_handler(request: Request, exc: S4HServiceUnavailableException):

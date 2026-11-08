@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiClient } from '@/lib/api';
@@ -49,13 +49,7 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<any>(null);
 
-  useEffect(() => {
-    if (!authLoading && currentUser && userId) {
-      loadUserProfile();
-    }
-  }, [authLoading, currentUser, userId]);
-
-  const loadUserProfile = async () => {
+  const loadUserProfile = useCallback(async () => {
     try {
       setLoading(true);
       if (!userId) {
@@ -94,7 +88,13 @@ export default function ProfilePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentUser, router, userId]);
+
+  useEffect(() => {
+    if (!authLoading && currentUser && userId) {
+      void loadUserProfile();
+    }
+  }, [authLoading, currentUser, userId, loadUserProfile]);
 
   if (authLoading || loading) {
     return (

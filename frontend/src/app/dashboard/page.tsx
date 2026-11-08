@@ -22,6 +22,16 @@ const memberLevelLabels: Record<string, string> = {
   official: 'Thành viên chính thức',
 };
 
+const skillTargetLabels: Record<string, string> = {
+  review: 'Ôn tập kiến thức',
+  learning_speed: 'Tăng tốc độ học',
+  weak_skills: 'Củng cố kỹ năng yếu',
+  strong_skills: 'Phát huy kỹ năng mạnh',
+};
+
+const formatSkillTarget = (target: string) =>
+  skillTargetLabels[target] || target.replaceAll('_', ' ');
+
 export default function DashboardPage() {
   const router = useRouter();
   const { user, isLoading, isAuthenticated, logout, refreshUser } = useAuth();
@@ -420,7 +430,7 @@ export default function DashboardPage() {
                 </p>
               </div>
               <div className="lg:text-right">
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Current Stage</p>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Giai đoạn hiện tại</p>
                 <p className="text-sm font-semibold text-gray-900 mt-2">{roadmap.current_stage}</p>
               </div>
             </div>
@@ -435,16 +445,18 @@ export default function DashboardPage() {
             {currentRoadmapWeek && (
               <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-3 text-sm">
                 <div>
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Question</p>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Câu hỏi trọng tâm</p>
                   <p className="text-gray-700 mt-1 line-clamp-2">{currentRoadmapWeek.question_focus}</p>
                 </div>
                 <div>
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Daily Task</p>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Nhiệm vụ hôm nay</p>
                   <p className="text-gray-700 mt-1 line-clamp-2">{currentRoadmapWeek.daily_task_focus}</p>
                 </div>
                 <div>
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Skill Target</p>
-                  <p className="text-gray-700 mt-1 line-clamp-2">{currentRoadmapWeek.skill_targets.join(', ')}</p>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Kỹ năng mục tiêu</p>
+                  <p className="text-gray-700 mt-1 line-clamp-2">
+                    {currentRoadmapWeek.skill_targets.map(formatSkillTarget).join(', ')}
+                  </p>
                 </div>
               </div>
             )}

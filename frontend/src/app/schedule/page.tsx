@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api';
@@ -10,8 +10,6 @@ import {
   SHIFT_LABELS,
   Attendance,
   AttendanceStats,
-  ATTENDANCE_STATUS_LABELS,
-  ATTENDANCE_STATUS_COLORS,
   ClassSchedule
 } from '@/types/schedule';
 
@@ -21,21 +19,15 @@ export default function SchedulePage() {
   
   const [weekStart, setWeekStart] = useState<Date>(getMonday(new Date()));
   const [schedules, setSchedules] = useState<Schedule[]>([]);
-  const [attendances, setAttendances] = useState<Attendance[]>([]);
+  const [, setAttendances] = useState<Attendance[]>([]);
   const [stats, setStats] = useState<AttendanceStats | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [classSchedules, setClassSchedules] = useState<ClassSchedule[]>([]);
   const [showStudentIdModal, setShowStudentIdModal] = useState(false);
   const [inputStudentId, setInputStudentId] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const syncedWeeks = useRef<Set<string>>(new Set());
-  
-  useEffect(() => {
-    if (user) {
-      loadData();
-    }
-  }, [user, weekStart]);
   
   function getMonday(date: Date): Date {
     const d = new Date(date);
@@ -67,7 +59,7 @@ export default function SchedulePage() {
     return dates;
   }
   
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const currentDate = new Date();
@@ -86,7 +78,8 @@ export default function SchedulePage() {
       // Auto-sync if: no data at all, OR it's the current week and hasn't been synced today
       const shouldAutoSync = user?.student_id &&
           !syncedWeeks.current.has(weekStartStr) &&
-          (hasNoData || (isCurrentWeek && !lastSyncedToday));
+          !lastSyncedToday &&
+          (hasNoData || isCurrentWeek);
 
       if (shouldAutoSync) {
           syncedWeeks.current.add(weekStartStr);
@@ -102,6 +95,9 @@ export default function SchedulePage() {
             setClassSchedules(res.class_schedules || []);
           } catch (err: any) {
             console.warn('Auto sync failed (student schedule may not be available):', err);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(syncKey, todayStr);
+            }
             setSyncMessage({
               type: 'error',
               text: err.response?.data?.detail || 'Chưa thể tự đồng bộ lịch từ LHU.',
@@ -129,7 +125,11 @@ export default function SchedulePage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [user?.student_id, weekStart]);
+
+  useEffect(() => {
+    if (user) void loadData();
+  }, [user, loadData]);
 
   async function handleSyncSchedule() {
     if (!user?.student_id) {
@@ -172,20 +172,28 @@ export default function SchedulePage() {
     try {
       await apiClient.updateStudentId(inputStudentId);
       await refreshUser();
-      const weekStartStr = formatDate(weekStart);
-      await apiClient.syncStudentSchedule(weekStartStr, true);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(`lhu_synced_${weekStartStr}`, formatDate(new Date()));
-      }
-      syncedWeeks.current.add(weekStartStr);
-      await loadData();
       setShowStudentIdModal(false);
-      setSyncMessage({ type: 'success', text: 'Đã lưu MSSV và đồng bộ lịch học thành công.' });
+
+      const weekStartStr = formatDate(weekStart);
+      try {
+        await apiClient.syncStudentSchedule(weekStartStr, true);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(`lhu_synced_${weekStartStr}`, formatDate(new Date()));
+        }
+        syncedWeeks.current.add(weekStartStr);
+        await loadData();
+        setSyncMessage({ type: 'success', text: 'Đã lưu MSSV và đồng bộ lịch học thành công.' });
+      } catch (syncError: any) {
+        setSyncMessage({
+          type: 'error',
+          text: `Đã lưu MSSV nhưng chưa đồng bộ được lịch: ${syncError.response?.data?.detail || 'LHU chưa phản hồi.'}`,
+        });
+      }
     } catch (error: any) {
       console.error('Failed to update student ID:', error);
       setSyncMessage({
         type: 'error',
-        text: error.response?.data?.detail || 'Không thể lưu MSSV hoặc đồng bộ lịch.',
+        text: error.response?.data?.detail || 'Không thể lưu MSSV.',
       });
     } finally {
       setSyncing(false);
