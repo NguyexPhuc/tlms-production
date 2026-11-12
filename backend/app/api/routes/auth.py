@@ -99,7 +99,8 @@ async def login(
     3. If 200: Return JWT Token
     4. If 400/401: Return error
     
-    IMPORTANT: Password is NEVER stored (Zero Trust Password policy)
+    S4H passwords are never stored. Standalone TLMS passwords are stored only
+    as salted scrypt hashes when the identity provider is unavailable.
     """
     # Local dev shortcut for seeded users. This avoids waiting on S4H when
     # developing offline, while production S4H auth remains available below.
@@ -122,10 +123,9 @@ async def login(
         # Lazy Sync: Get or create local user
         user = await user_service.get_or_create_user(db, s4h_user_info)
     except S4HServiceUnavailableException:
-        # If S4H is down, keep the local machine usable with explicitly
-        # configured dev credentials for existing users only.
-        user = await local_auth_service.login(db, credentials)
-        tokens = local_auth_service.create_tokens(user)
+        # Local credentials were already checked above. Existing S4H-only
+        # accounts receive an accurate outage response instead of a fake 401.
+        raise
     
     # Update last login
     await user_service.update_user_login(db, user)
@@ -153,14 +153,19 @@ async def login(
     - User local sẽ được tạo tự động khi đăng nhập lần đầu
     """
 )
-async def register(user_data: RegisterRequest):
+async def register(
+    user_data: RegisterRequest,
+    db: AsyncSession = Depends(get_db),
+):
     """
-    Register new user through S4H Auth
-    
-    Note: Local user record is NOT created here.
-    It will be created via Lazy Sync when user logs in.
+    Register through S4H Auth, with a standalone TLMS fallback during outages.
+
+    Existing emails are never claimed by the fallback registration flow.
     """
-    await s4h_auth_service.register(user_data)
+    try:
+        await s4h_auth_service.register(user_data)
+    except S4HServiceUnavailableException:
+        await local_auth_service.register(db, user_data)
     
     logger.info(f"New user registered: {user_data.email}")
     

@@ -54,6 +54,8 @@ envVarGroups:
         generateValue: true
       - key: S4H_AUTH_BASE_URL
         sync: false
+      - key: LOCAL_AUTH_ENABLED
+        value: "true"
       - key: LHU_API_BASE_URL
         value: https://tapi.lhu.edu.vn
       - key: LHU_MYSQL_HOST

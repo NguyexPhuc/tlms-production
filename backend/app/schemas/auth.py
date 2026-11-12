@@ -13,7 +13,7 @@ from app.models.user import UserRole, UserStatus, MemberLevel
 # ============================================
 
 class LoginRequest(BaseModel):
-    """Login request body - forwarded to S4H Auth"""
+    """Login request body for S4H or standalone TLMS authentication."""
     email: str = Field(..., min_length=3, max_length=255)
     password: str = Field(..., min_length=1)
 
@@ -35,7 +35,7 @@ class LoginRequest(BaseModel):
 
 
 class RegisterRequest(BaseModel):
-    """Register request body - forwarded to S4H Auth"""
+    """Registration data accepted by S4H or standalone TLMS auth."""
     email: EmailStr
     password: str = Field(..., min_length=6)
     phone: str = Field(..., min_length=1, max_length=20)

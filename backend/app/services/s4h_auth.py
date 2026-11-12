@@ -74,6 +74,14 @@ class S4HAuthService:
                     data = response.json()
                 except Exception:
                     data = {"message": response.text}
+
+                if response.status_code >= 500:
+                    logger.error(
+                        "S4H Auth unavailable for %s: HTTP %s",
+                        endpoint,
+                        response.status_code,
+                    )
+                    raise S4HServiceUnavailableException()
                 
                 return response.status_code, data
                 

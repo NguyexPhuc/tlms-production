@@ -5,7 +5,7 @@ Implements oauth.md section 4.3: User Sync Strategy
 import logging
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.user import User, UserRole, UserStatus, MemberLevel
 from app.schemas.auth import S4HUserInfo
@@ -47,6 +47,16 @@ class UserService:
         stmt = select(User).where(User.s4h_user_id == s4h_user_info.id)
         result = await db.execute(stmt)
         user = result.scalar_one_or_none()
+
+        if user is None:
+            email_match = (
+                await db.execute(
+                    select(User).where(func.lower(User.email) == str(s4h_user_info.email).lower())
+                )
+            ).scalar_one_or_none()
+            if email_match is not None and email_match.s4h_user_id.startswith("local:"):
+                email_match.s4h_user_id = s4h_user_info.id
+                user = email_match
         
         if user is None:
             # User doesn't exist locally - create new record

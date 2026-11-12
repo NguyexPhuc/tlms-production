@@ -1,7 +1,8 @@
 """
 User Model for TLMS
 Following the database schema from oauth.md document
-This table only stores local user data, NO password fields
+S4H-linked users do not need a local password. Standalone TLMS accounts may
+store an optional salted password hash for continuity during S4H outages.
 """
 import uuid
 from datetime import datetime
@@ -45,10 +46,8 @@ class User(Base):
     """
     Local User table (local_users)
     
-    According to oauth.md:
-    - No password column
-    - No password_salt column
-    - Only contains metadata to link data with S4H Auth
+    S4H-linked accounts may omit password_hash. Standalone TLMS accounts use
+    a versioned salted hash and can later be linked to S4H by normalized email.
     
     Extended with fields from system.md for gamification:
     - current_xp, discipline_score, level for tracking progress
@@ -68,6 +67,7 @@ class User(Base):
     phone = Column(String(20), nullable=True)  # Phone number from LHU
     first_name = Column(String(100), nullable=True)
     last_name = Column(String(100), nullable=True)
+    password_hash = Column(String(512), nullable=True)
     
     # Role in TLMS system (stored as an array for backward compatibility).
     # Application policy allows exactly one role per account.

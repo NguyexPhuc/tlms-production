@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     # S4H Auth Service - Identity Provider
     S4H_AUTH_BASE_URL: str = "http://api-auth.aisteamx.edu.vn"
 
+    # First-party local accounts keep TLMS usable when the external identity
+    # provider is unavailable. Passwords are stored only as salted hashes.
+    LOCAL_AUTH_ENABLED: bool = True
+
     # Local development auth fallback.
     # This is used only for local seeded TLMS users when S4H Auth is unavailable.
     DEV_AUTH_FALLBACK_ENABLED: bool = False

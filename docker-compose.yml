@@ -35,6 +35,7 @@ services:
       AUTO_CREATE_SCHEMA: ${AUTO_CREATE_SCHEMA:-true}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-tlms}
       S4H_AUTH_BASE_URL: ${S4H_AUTH_BASE_URL:-http://api-auth.aisteamx.edu.vn}
+      LOCAL_AUTH_ENABLED: ${LOCAL_AUTH_ENABLED:-true}
       DEV_AUTH_FALLBACK_ENABLED: ${DEV_AUTH_FALLBACK_ENABLED:-false}
       DEV_AUTH_PASSWORD: ${DEV_AUTH_PASSWORD:-}
       DEV_AUTH_SECRET_KEY: ${DEV_AUTH_SECRET_KEY:-}
