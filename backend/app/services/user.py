@@ -8,6 +8,7 @@ from typing import Optional
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.user import User, UserRole, UserStatus, MemberLevel
+from app.core.student_id import is_valid_student_id
 from app.schemas.auth import S4HUserInfo
 
 logger = logging.getLogger(__name__)
@@ -68,7 +69,11 @@ class UserService:
                 phone=s4h_user_info.phone,  # Sync phone from S4H
                 first_name=s4h_user_info.firstName,
                 last_name=s4h_user_info.lastName,
-                student_id=s4h_user_info.studentCode, # Sync student ID on creation
+                student_id=(
+                    s4h_user_info.studentCode
+                    if is_valid_student_id(s4h_user_info.studentCode)
+                    else None
+                ),
                 roles=['candidate'],  # Default role for new users
                 status=UserStatus.ACTIVE,
                 current_xp=0,
@@ -111,7 +116,11 @@ class UserService:
                 updated = True
 
             # Update studentCode if provided and available in database
-            if hasattr(s4h_user_info, 'studentCode') and s4h_user_info.studentCode and not user.student_id:
+            if (
+                hasattr(s4h_user_info, 'studentCode')
+                and is_valid_student_id(s4h_user_info.studentCode)
+                and not user.student_id
+            ):
                 user.student_id = s4h_user_info.studentCode
                 updated = True
 

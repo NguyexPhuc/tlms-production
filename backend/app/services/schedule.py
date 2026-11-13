@@ -13,6 +13,7 @@ from app.models.schedule import Schedule, Attendance, Shift, AttendanceStatus, C
 from app.models.user import User
 from app.schemas.schedule import ScheduleCreate
 from app.services.lhu_api import lhu_api_service
+from app.core.student_id import is_valid_student_id
 from app.core.exceptions import (
     NotFoundException,
     BadRequestException,
@@ -224,7 +225,9 @@ class ScheduleService:
         """
         try:
             if not user.student_id:
-                raise BadRequestException("Vui lòng cập nhật Mã sinh viên (Student ID) trước.")
+                raise BadRequestException("Vui lòng cập nhật MSSV trước khi đồng bộ lịch.")
+            if not is_valid_student_id(user.student_id):
+                raise BadRequestException("MSSV phải gồm đúng 9 chữ số trước khi đồng bộ lịch.")
 
             week_end = week_start + timedelta(days=6)
             

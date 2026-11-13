@@ -4,7 +4,6 @@ Background Tasks Service - Automatic schedule synchronization
 import asyncio
 import logging
 import pytz
-import re
 from datetime import date, datetime, timedelta
 from typing import Any, Awaitable, Callable, Dict, Optional
 from sqlalchemy import or_, select
@@ -16,6 +15,7 @@ from apscheduler.triggers.date import DateTrigger
 
 from app.core.config import get_settings
 from app.core.database import AsyncSessionLocal
+from app.core.student_id import is_valid_student_id
 from app.models.user import User, UserRole, UserStatus
 from app.services.cup import weekly_cup_service
 from app.services.quest import daily_quest_service
@@ -34,11 +34,8 @@ scheduler = AsyncIOScheduler(timezone=VN_TIMEZONE)
 
 
 def _is_syncable_student_id(student_id: Optional[str]) -> bool:
-    """Reject empty and known local/demo identifiers before calling LHU."""
-    normalized = (student_id or "").strip()
-    if not normalized:
-        return False
-    return re.fullmatch(r"(?:TLMS|DEMO|TEST)\d+", normalized, re.IGNORECASE) is None
+    """Only nine-digit LHU student identifiers can be synchronized."""
+    return is_valid_student_id(student_id)
 
 
 async def _run_with_retry(

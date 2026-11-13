@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 import aiomysql
 from app.core.config import settings
+from app.core.student_id import is_valid_student_id
 
 logger = logging.getLogger(__name__)
 
@@ -241,7 +242,7 @@ class LHUStudentSyncService:
                             matched_by_email += 1
 
                     # Update if matched and has uid
-                    if matched_user and student.uid:
+                    if matched_user and is_valid_student_id(student.uid):
                         needs_update = False
                         
                         # Update student_id if missing or different

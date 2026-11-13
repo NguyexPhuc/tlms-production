@@ -28,6 +28,17 @@ export default function SchedulePage() {
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const syncedWeeks = useRef<Set<string>>(new Set());
+  const normalizedStudentId = inputStudentId.trim();
+  const studentIdIsValid = /^\d{9}$/.test(normalizedStudentId);
+  const studentIdError = normalizedStudentId.length === 0
+    ? ''
+    : !/^\d+$/.test(normalizedStudentId)
+      ? 'MSSV chỉ được chứa chữ số.'
+      : normalizedStudentId.length < 9
+        ? `MSSV còn thiếu ${9 - normalizedStudentId.length} số.`
+        : normalizedStudentId.length > 9
+          ? 'MSSV không được vượt quá 9 số.'
+          : '';
   
   function getMonday(date: Date): Date {
     const d = new Date(date);
@@ -166,11 +177,14 @@ export default function SchedulePage() {
   }
 
   async function handleUpdateStudentId() {
-    if (!inputStudentId.trim()) return;
+    if (!studentIdIsValid) {
+      setSyncMessage({ type: 'error', text: studentIdError || 'MSSV phải gồm đúng 9 chữ số.' });
+      return;
+    }
     setSyncing(true);
     setSyncMessage(null);
     try {
-      await apiClient.updateStudentId(inputStudentId);
+      await apiClient.updateStudentId(normalizedStudentId);
       await refreshUser();
       setShowStudentIdModal(false);
 
@@ -446,10 +460,17 @@ export default function SchedulePage() {
                   type="text"
                   value={inputStudentId}
                   onChange={(e) => setInputStudentId(e.target.value)}
-                  placeholder="Nhập MSSV"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1E90FF] focus:border-[#1E90FF]"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  aria-invalid={Boolean(studentIdError)}
+                  aria-describedby="student-id-help"
+                  placeholder="Ví dụ: 123000529"
+                  className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-[#1E90FF] focus:border-[#1E90FF] ${studentIdError ? 'border-red-400 bg-red-50' : 'border-gray-300'}`}
                   autoFocus
                 />
+                <p id="student-id-help" className={`mt-2 text-xs ${studentIdError ? 'text-red-600' : 'text-gray-500'}`}>
+                  {studentIdError || 'MSSV phải gồm đúng 9 chữ số.'}
+                </p>
               </div>
               <div className="px-6 py-4 bg-gray-50 rounded-b-lg flex justify-end gap-3">
                 <button
@@ -461,7 +482,7 @@ export default function SchedulePage() {
                 </button>
                 <button
                   onClick={handleUpdateStudentId}
-                  disabled={!inputStudentId.trim() || syncing}
+                  disabled={!studentIdIsValid || syncing}
                   className="px-4 py-2 bg-[#1E90FF] text-white rounded-lg hover:bg-[#1a7de0] disabled:opacity-50 transition-colors shadow-sm"
                 >
                   {syncing ? 'Đang đồng bộ...' : 'Lưu & Đồng bộ'}

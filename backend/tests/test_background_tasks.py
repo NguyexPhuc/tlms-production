@@ -12,7 +12,7 @@ from app.services import background_tasks
         ("demo123", False),
         ("TEST99", False),
         ("123000529", True),
-        ("20ABC123", True),
+        ("20ABC123", False),
     ],
 )
 def test_schedule_sync_rejects_local_demo_student_ids(student_id, expected):

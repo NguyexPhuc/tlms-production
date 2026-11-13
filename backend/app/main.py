@@ -171,12 +171,15 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     for error in exc.errors():
         field = " -> ".join(str(loc) for loc in error["loc"])
         errors.append(f"{field}: {error['msg']}")
+    first_message = exc.errors()[0]["msg"] if exc.errors() else "Dữ liệu không hợp lệ"
+    if first_message.startswith("Value error, "):
+        first_message = first_message.removeprefix("Value error, ")
     
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
             "error": "validation_error",
-            "detail": "Dữ liệu không hợp lệ",
+            "detail": first_message if len(errors) == 1 else "Dữ liệu không hợp lệ",
             "errors": errors,
             "success": False
         }

@@ -14,6 +14,19 @@ def test_entry_assessment_has_exactly_five_objective_questions():
         assert question["points"] == 20
 
 
+def test_entry_assessment_uses_clear_accented_vietnamese():
+    expected_titles = [
+        "Tư duy 1 - Phân tích lỗi",
+        "Tư duy 2 - Dữ liệu đầy đủ",
+        "Tư duy 3 - Điều kiện phân quyền",
+        "Tư duy 4 - Dữ liệu bất đồng bộ",
+        "Tư duy 5 - Nhận diện quy luật",
+    ]
+
+    assert [question["title"] for question in BASELINE_QUESTIONS] == expected_titles
+    assert all("Đánh giá" in question["learning_objective"] for question in BASELINE_QUESTIONS)
+
+
 def test_public_question_schema_does_not_expose_answer_key():
     assert "options" in QuestionResponse.model_fields
     assert "correct_option" not in QuestionResponse.model_fields

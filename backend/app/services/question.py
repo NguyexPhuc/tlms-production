@@ -70,13 +70,13 @@ LEGACY_BASELINE_QUESTIONS = BASELINE_QUESTIONS
 # scenarios can be graded consistently without depending on an LLM provider.
 BASELINE_QUESTIONS: List[Dict[str, Any]] = [
     {
-        "title": "Tu duy 1 - Phan tich loi",
-        "question": "Mot API tra ve danh sach rong du du lieu duoc cho la da ton tai. Buoc nao nen lam dau tien?",
+        "title": "Tư duy 1 - Phân tích lỗi",
+        "question": "Một API trả về danh sách rỗng dù dữ liệu được cho là đã tồn tại. Bước nào nên làm đầu tiên?",
         "options": {
-            "A": "Viet lai toan bo API",
-            "B": "Tai them thu vien moi",
-            "C": "Tai hien loi va kiem tra request, response, log cung dieu kien truy van",
-            "D": "Tang cau hinh may chu",
+            "A": "Viết lại toàn bộ API",
+            "B": "Cài thêm thư viện mới",
+            "C": "Tái hiện lỗi và kiểm tra request, response, log cùng điều kiện truy vấn",
+            "D": "Tăng cấu hình máy chủ",
         },
         "correct_option": "C",
         "skill_key": "problem_solving",
@@ -84,16 +84,16 @@ BASELINE_QUESTIONS: List[Dict[str, Any]] = [
         "difficulty": "easy",
         "numeric_difficulty": 2.5,
         "points": 20,
-        "learning_objective": "Danh gia kha nang thu thap bang chung truoc khi sua loi.",
+        "learning_objective": "Đánh giá khả năng thu thập bằng chứng trước khi sửa lỗi.",
     },
     {
-        "title": "Tu duy 2 - Du lieu day du",
-        "question": "Can liet ke tat ca nguoi dung, ke ca nguoi chua co task. Cach ket hop bang nao hop ly nhat?",
+        "title": "Tư duy 2 - Dữ liệu đầy đủ",
+        "question": "Cần liệt kê tất cả người dùng, kể cả người chưa có task. Cách kết hợp bảng nào hợp lý nhất?",
         "options": {
-            "A": "INNER JOIN tu users sang tasks",
-            "B": "LEFT JOIN tu users sang tasks",
-            "C": "Chi truy van bang tasks",
-            "D": "Xoa cac user chua co task",
+            "A": "INNER JOIN từ users sang tasks",
+            "B": "LEFT JOIN từ users sang tasks",
+            "C": "Chỉ truy vấn bảng tasks",
+            "D": "Xóa các user chưa có task",
         },
         "correct_option": "B",
         "skill_key": "database",
@@ -101,11 +101,11 @@ BASELINE_QUESTIONS: List[Dict[str, Any]] = [
         "difficulty": "easy",
         "numeric_difficulty": 3.0,
         "points": 20,
-        "learning_objective": "Danh gia tu duy bao toan du lieu khi ket hop nhieu tap ban ghi.",
+        "learning_objective": "Đánh giá tư duy bảo toàn dữ liệu khi kết hợp nhiều tập bản ghi.",
     },
     {
-        "title": "Tu duy 3 - Dieu kien phan quyen",
-        "question": "Nguoi dung duoc sua task khi ho la chu task HOAC la admin. Bieu thuc nao dung?",
+        "title": "Tư duy 3 - Điều kiện phân quyền",
+        "question": "Người dùng được sửa task khi họ là chủ task HOẶC là admin. Biểu thức nào đúng?",
         "options": {
             "A": "is_owner and is_admin",
             "B": "is_owner or is_admin",
@@ -118,16 +118,16 @@ BASELINE_QUESTIONS: List[Dict[str, Any]] = [
         "difficulty": "easy",
         "numeric_difficulty": 2.5,
         "points": 20,
-        "learning_objective": "Danh gia kha nang chuyen yeu cau nghiep vu thanh dieu kien logic.",
+        "learning_objective": "Đánh giá khả năng chuyển yêu cầu nghiệp vụ thành điều kiện logic.",
     },
     {
-        "title": "Tu duy 4 - Du lieu bat dong bo",
-        "question": "Nguoi dung tim 'a' roi nhanh chong tim 'ab'. Response cua 'a' ve sau va ghi de ket qua 'ab'. Xu ly nao tot nhat?",
+        "title": "Tư duy 4 - Dữ liệu bất đồng bộ",
+        "question": "Người dùng tìm 'a' rồi nhanh chóng tìm 'ab'. Phản hồi của 'a' về sau và ghi đè kết quả 'ab'. Xử lý nào tốt nhất?",
         "options": {
-            "A": "Luon hien response ve sau cung",
-            "B": "Cho moi request chay hai lan",
-            "C": "Huy request cu hoac chi nhan response cua request moi nhat",
-            "D": "Reload trang sau moi ky tu",
+            "A": "Luôn hiển thị phản hồi về sau cùng",
+            "B": "Cho mỗi request chạy hai lần",
+            "C": "Hủy request cũ hoặc chỉ nhận phản hồi của request mới nhất",
+            "D": "Tải lại trang sau mỗi ký tự",
         },
         "correct_option": "C",
         "skill_key": "frontend",
@@ -135,11 +135,11 @@ BASELINE_QUESTIONS: List[Dict[str, Any]] = [
         "difficulty": "medium",
         "numeric_difficulty": 4.0,
         "points": 20,
-        "learning_objective": "Danh gia tu duy ve race condition va tinh nhat quan cua giao dien.",
+        "learning_objective": "Đánh giá tư duy về race condition và tính nhất quán của giao diện.",
     },
     {
-        "title": "Tu duy 5 - Nhan dien quy luat",
-        "question": "Day so 2, 6, 12, 20 tuan theo quy luat n x (n + 1). So tiep theo la bao nhieu?",
+        "title": "Tư duy 5 - Nhận diện quy luật",
+        "question": "Dãy số 2, 6, 12, 20 tuân theo quy luật n × (n + 1). Số tiếp theo là bao nhiêu?",
         "options": {"A": "24", "B": "28", "C": "30", "D": "32"},
         "correct_option": "C",
         "skill_key": "problem_solving",
@@ -147,7 +147,7 @@ BASELINE_QUESTIONS: List[Dict[str, Any]] = [
         "difficulty": "medium",
         "numeric_difficulty": 3.5,
         "points": 20,
-        "learning_objective": "Danh gia kha nang quan sat va suy luan quy luat.",
+        "learning_objective": "Đánh giá khả năng quan sát và suy luận quy luật.",
     },
 ]
 
@@ -666,17 +666,22 @@ class QuestionService:
                 "learning_objective",
                 f"Kiem tra kien thuc {item['topic']} qua cau hoi trac nghiem.",
             )
-            existing = (
-                await db.execute(
-                    select(Question).where(
-                        Question.title == item["title"],
-                        Question.source == "system",
-                    )
+            if item in BASELINE_QUESTIONS:
+                existing_query = select(Question).where(
+                    Question.source == "system",
+                    Question.category == "baseline",
+                    Question.topic == item["topic"],
                 )
-            ).scalar_one_or_none()
+            else:
+                existing_query = select(Question).where(
+                    Question.title == item["title"],
+                    Question.source == "system",
+                )
+            existing = (await db.execute(existing_query)).scalar_one_or_none()
             target_member_level = MemberLevel(item.get("target_member_level", MemberLevel.NEW.value))
             accepted_concepts = item.get("accepted_concepts") or ADAPTIVE_QUESTION_CONCEPTS.get(item["topic"])
             if existing:
+                existing.title = item["title"]
                 existing.question = item["question"]
                 existing.description = learning_objective
                 existing.difficulty = self._difficulty_from_value(item["difficulty"])

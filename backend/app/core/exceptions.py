@@ -34,6 +34,16 @@ class InvalidCredentialsException(HTTPException):
         )
 
 
+class AccountNotRegisteredException(HTTPException):
+    """Exception when an email has no TLMS account during an IdP outage."""
+
+    def __init__(self):
+        super().__init__(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tài khoản chưa được đăng ký. Vui lòng đăng ký trước khi đăng nhập.",
+        )
+
+
 class NotFoundException(HTTPException):
     """Generic Not Found Exception"""
     def __init__(self, detail: str = "Not Found"):

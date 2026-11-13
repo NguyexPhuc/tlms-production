@@ -13,7 +13,11 @@ import logging
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
-from app.core.exceptions import InvalidCredentialsException, S4HServiceUnavailableException
+from app.core.exceptions import (
+    AccountNotRegisteredException,
+    InvalidCredentialsException,
+    S4HServiceUnavailableException,
+)
 from app.api.deps import get_current_user
 from app.services.local_auth import local_auth_service
 from app.services.s4h_auth import s4h_auth_service
@@ -102,8 +106,18 @@ async def login(
     S4H passwords are never stored. Standalone TLMS passwords are stored only
     as salted scrypt hashes when the identity provider is unavailable.
     """
-    # Local dev shortcut for seeded users. This avoids waiting on S4H when
-    # developing offline, while production S4H auth remains available below.
+    local_user = await local_auth_service.get_user_by_email(db, credentials.email)
+
+    # Accounts with a local password must fail with 401 on a wrong password;
+    # they must not be mislabeled as an S4H outage.
+    if local_user is not None and local_user.password_hash:
+        user = await local_auth_service.login(db, credentials)
+        tokens = local_auth_service.create_tokens(user)
+        await user_service.update_user_login(db, user)
+        logger.info("Local login successful: %s", user.email)
+        return build_authenticated_response(tokens, user)
+
+    # Optional shared development fallback for legacy seeded users.
     try:
         user = await local_auth_service.login(db, credentials)
         tokens = local_auth_service.create_tokens(user)
@@ -123,8 +137,10 @@ async def login(
         # Lazy Sync: Get or create local user
         user = await user_service.get_or_create_user(db, s4h_user_info)
     except S4HServiceUnavailableException:
-        # Local credentials were already checked above. Existing S4H-only
-        # accounts receive an accurate outage response instead of a fake 401.
+        if local_user is None:
+            raise AccountNotRegisteredException()
+        # A known S4H-only account cannot be verified while the provider is
+        # unavailable, so preserve the accurate service outage response.
         raise
     
     # Update last login

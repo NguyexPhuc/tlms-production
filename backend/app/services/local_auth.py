@@ -135,9 +135,7 @@ class LocalAuthService:
         return user
 
     async def login(self, db: AsyncSession, credentials: LoginRequest) -> User:
-        stmt = select(User).where(func.lower(User.email) == credentials.email.strip().lower())
-        result = await db.execute(stmt)
-        user: Optional[User] = result.scalar_one_or_none()
+        user = await self.get_user_by_email(db, credentials.email)
         if user is None or user.status != UserStatus.ACTIVE:
             raise InvalidCredentialsException()
 
@@ -154,6 +152,12 @@ class LocalAuthService:
         if not local_password_valid and not shared_dev_password_valid:
             raise InvalidCredentialsException()
         return user
+
+    async def get_user_by_email(self, db: AsyncSession, email: str) -> Optional[User]:
+        """Find a local account using normalized email matching."""
+        stmt = select(User).where(func.lower(User.email) == email.strip().lower())
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def register(self, db: AsyncSession, user_data: RegisterRequest) -> User:
         """Create a standalone candidate account without claiming an existing email."""

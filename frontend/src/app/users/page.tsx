@@ -29,11 +29,13 @@ export default function UsersDirectoryPage() {
   const [statusFilter, setStatusFilter] = useState<string>('active');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [loadError, setLoadError] = useState('');
   const pageSize = 20;
 
   const loadUsers = useCallback(async () => {
     try {
       setLoading(true);
+      setLoadError('');
       const params: any = {
         page,
         page_size: pageSize,
@@ -56,10 +58,7 @@ export default function UsersDirectoryPage() {
       setTotal(data.total || 0);
     } catch (error: any) {
       console.error('Failed to load users:', error);
-      // If not admin, try to get users without admin endpoint
-      if (error.response?.status === 403) {
-        // Non-admin users can't access user list
-      }
+      setLoadError(error.response?.data?.detail || 'Không thể tải danh sách thành viên.');
     } finally {
       setLoading(false);
     }
@@ -104,6 +103,11 @@ export default function UsersDirectoryPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+        {loadError && (
+          <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {loadError}
+          </div>
+        )}
         {/* Search & Filters */}
         <div className="bg-white rounded-xl shadow-md p-5">
           <form onSubmit={handleSearch} className="flex flex-col md:flex-row gap-4">

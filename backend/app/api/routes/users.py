@@ -1,7 +1,6 @@
 """
 User Management Routes - Admin only
 """
-import re
 from typing import Optional, List
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -10,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.student_id import normalize_student_id
 from app.models.user import User, UserRole, UserStatus, MemberLevel
 from app.schemas.user import (
     UserResponse,
@@ -101,10 +101,7 @@ class StudentIdUpdate(BaseModel):
     @field_validator("student_id")
     @classmethod
     def validate_student_id(cls, value: str) -> str:
-        normalized = value.strip()
-        if not re.fullmatch(r"[A-Za-z0-9]{6,20}", normalized):
-            raise ValueError("MSSV phải gồm 6-20 chữ cái hoặc chữ số")
-        return normalized
+        return normalize_student_id(value)
 
 @router.put("/me/student-id", response_model=UserResponse)
 async def update_student_id(
@@ -168,15 +165,12 @@ async def list_users(
     current_user: User = Depends(get_current_user)
 ):
     """
-    List all users with pagination and filters
-    Admin and Mentor only
+    List users with pagination and filters.
+
+    The dashboard exposes this directory to every authenticated account.
+    Management roles may additionally query inactive accounts.
     """
-    # Check permission
-    if not (current_user.is_admin() or current_user.is_mentor()):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admin and mentor can access user list"
-        )
+    can_manage_users = current_user.is_admin() or current_user.is_mentor()
     # Build query
     query = select(User)
     count_query = select(func.count(User.id))
@@ -194,7 +188,10 @@ async def list_users(
         query = query.where(User.roles.any(role))
         count_query = count_query.where(User.roles.any(role))
     
-    if user_status:
+    if not can_manage_users:
+        query = query.where(User.status == UserStatus.ACTIVE)
+        count_query = count_query.where(User.status == UserStatus.ACTIVE)
+    elif user_status:
         try:
             status_enum = UserStatus(user_status)
             query = query.where(User.status == status_enum)
