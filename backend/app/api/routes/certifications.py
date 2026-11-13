@@ -47,6 +47,15 @@ router = APIRouter(tags=["Digital Certification"])
 settings = get_settings()
 
 
+def require_certification_writable() -> None:
+    """Keep learner mutations disabled while certification is in preview."""
+    if settings.CERTIFICATION_READ_ONLY:
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail="Bài thi và Chứng chỉ đang phát triển. Hiện tại bạn chỉ có thể xem.",
+        )
+
+
 @router.get("/courses", response_model=list[CourseResponse])
 async def list_courses(
     db: AsyncSession = Depends(get_db),
@@ -69,6 +78,7 @@ async def enroll_course(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    require_certification_writable()
     return await certification_service.enroll_course(db, current_user, course_id)
 
 
@@ -159,6 +169,7 @@ async def start_exam(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    require_certification_writable()
     return await certification_service.start_exam(db, current_user, exam_id)
 
 
@@ -169,6 +180,7 @@ async def submit_exam(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    require_certification_writable()
     return await certification_service.submit_exam(db, current_user, attempt_id, payload.answers)
 
 

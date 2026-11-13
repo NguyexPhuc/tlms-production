@@ -8,6 +8,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { apiClient } from '@/lib/api';
 import { Certificate, CertificationExam, Course, CourseEnrollment, CourseLesson } from '@/types/certification';
 
+const CERTIFICATION_READ_ONLY = true;
+
 
 export default function CertificationsPage() {
   const router = useRouter();
@@ -88,9 +90,17 @@ export default function CertificationsPage() {
 
       <main className="mx-auto max-w-6xl space-y-8 px-4 py-8">
         {error && <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
+        {CERTIFICATION_READ_ONLY && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <p className="font-semibold text-amber-900">Đang phát triển</p>
+            <p className="mt-1 text-sm text-amber-800">
+              Bạn có thể xem khóa học, nội dung và chứng chỉ hiện có. Chức năng đăng ký và làm bài thi sẽ được mở sau.
+            </p>
+          </div>
+        )}
 
         <section>
-          <div className="mb-4"><h2 className="text-lg font-bold text-slate-950">Khóa học</h2><p className="mt-1 text-sm text-slate-500">Đăng ký, xem nội dung học rồi tham gia bài đánh giá.</p></div>
+          <div className="mb-4"><h2 className="text-lg font-bold text-slate-950">Khóa học</h2><p className="mt-1 text-sm text-slate-500">Xem trước nội dung các khóa học đang được hoàn thiện.</p></div>
           <div className="grid gap-4 md:grid-cols-2">
             {courses.map((course) => {
               const enrolled = enrollments.some((item) => item.course_id === course.id);
@@ -98,7 +108,7 @@ export default function CertificationsPage() {
                 <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase text-red-700">{course.code}</p><h3 className="mt-1 text-lg font-bold text-slate-950">{course.title}</h3></div><BookOpen size={21} className="shrink-0 text-slate-400" /></div>
                 <p className="mt-2 text-sm leading-6 text-slate-600">{course.description}</p>
                 <div className="mt-3 flex flex-wrap gap-1.5">{course.skills.map((skill) => <span key={skill} className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-600">{skill}</span>)}</div>
-                <div className="mt-5 flex gap-2">{enrolled ? <button onClick={() => toggleLessons(course.id)} className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">Nội dung học <ChevronDown size={16} /></button> : <button onClick={() => enroll(course.id)} className="flex-1 rounded-lg bg-red-700 px-3 py-2 text-sm font-semibold text-white hover:bg-red-800">Đăng ký khóa học</button>}</div>
+                <div className="mt-5 flex gap-2">{CERTIFICATION_READ_ONLY || enrolled ? <button onClick={() => toggleLessons(course.id)} className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">Xem nội dung <ChevronDown size={16} /></button> : <button onClick={() => enroll(course.id)} className="flex-1 rounded-lg bg-red-700 px-3 py-2 text-sm font-semibold text-white hover:bg-red-800">Đăng ký khóa học</button>}</div>
                 {openCourse === course.id && <div className="mt-4 border-t border-slate-100 pt-3">{(lessons[course.id] || []).length ? <ol className="space-y-2">{lessons[course.id].map((lesson) => <li key={lesson.id} className="flex gap-3 text-sm"><span className="font-bold text-red-700">{lesson.position}.</span><div><p className="font-semibold text-slate-900">{lesson.title}</p>{lesson.content && <p className="mt-1 whitespace-pre-wrap text-slate-600">{lesson.content}</p>}</div></li>)}</ol> : <p className="text-sm text-slate-500">Khóa học chưa có bài học được công bố.</p>}</div>}
               </article>;
             })}
@@ -109,7 +119,7 @@ export default function CertificationsPage() {
           <div className="mb-4 flex items-end justify-between gap-3">
             <div>
               <h2 className="text-lg font-bold text-slate-950">Bài đánh giá đang mở</h2>
-              <p className="mt-1 text-sm text-slate-500">Điểm được chấm tại server. Đạt ngưỡng sẽ tự động cấp chứng chỉ.</p>
+              <p className="mt-1 text-sm text-slate-500">Danh sách bài đánh giá dự kiến. Chức năng làm bài chưa được mở.</p>
             </div>
             <span className="text-sm font-semibold text-slate-600">{exams.length} bài</span>
           </div>
@@ -136,11 +146,11 @@ export default function CertificationsPage() {
                     </div>
                     <div className="mt-auto pt-5">
                       <button
-                        disabled={exhausted}
+                        disabled={CERTIFICATION_READ_ONLY || exhausted}
                         onClick={() => router.push(`/certifications/exams/${exam.id}`)}
                         className="w-full rounded-lg bg-red-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
                       >
-                        {exhausted ? 'Đã hết lượt thi' : exam.attempts_used ? 'Tiếp tục / Thi lại' : 'Bắt đầu thi'}
+                        {CERTIFICATION_READ_ONLY ? 'Chỉ xem' : exhausted ? 'Đã hết lượt thi' : exam.attempts_used ? 'Tiếp tục / Thi lại' : 'Bắt đầu thi'}
                       </button>
                       <p className="mt-2 text-center text-xs text-slate-400">Lượt {exam.attempts_used}/{exam.max_attempts}</p>
                     </div>

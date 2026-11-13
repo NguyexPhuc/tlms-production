@@ -262,7 +262,7 @@ export default function DashboardPage() {
     },
     {
       title: 'Bài thi & Chứng chỉ',
-      description: 'Thi năng lực, tải PDF và xác minh',
+      description: 'Xem trước khóa học và chứng chỉ',
       href: '/certifications',
       show: isLearningAccount,
     },
@@ -577,7 +577,14 @@ export default function DashboardPage() {
                   className="w-full flex items-center justify-between p-4 hover:bg-blue-50 transition-colors text-left group"
                 >
                   <div>
-                    <p className="text-sm font-medium text-gray-900 group-hover:text-[#1E90FF]">{item.title}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-medium text-gray-900 group-hover:text-[#1E90FF]">{item.title}</p>
+                      {item.href === '/certifications' && (
+                        <span className="rounded bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                          Đang phát triển
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-gray-500 mt-0.5">{item.description}</p>
                   </div>
                   <svg className="w-4 h-4 text-gray-400 group-hover:text-[#1E90FF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">

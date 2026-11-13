@@ -103,6 +103,7 @@ class Settings(BaseSettings):
     CERTIFICATE_STORAGE_DIR: str = "private/certificates"
     CERTIFICATE_ISSUER_NAME: str = "T&A Lab"
     CERTIFICATE_VERIFY_RATE_LIMIT: int = 30
+    CERTIFICATION_READ_ONLY: bool = True
 
     # File storage. Production uses an S3-compatible private bucket (for example R2).
     STORAGE_BACKEND: str = "local"

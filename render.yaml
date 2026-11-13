@@ -102,6 +102,8 @@ envVarGroups:
         value: T&A Lab
       - key: CERTIFICATE_VERIFY_RATE_LIMIT
         value: "30"
+      - key: CERTIFICATION_READ_ONLY
+        value: "true"
       - key: WEEKLY_CUP_MIN_DISCIPLINE
         value: "80"
       - key: WEEKLY_CUP_OPEN_WEEKDAY

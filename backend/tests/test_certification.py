@@ -3,13 +3,30 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 
+from app.api.routes import certifications
 from app.models.certification import Certificate, CourseEnrollment, ExamResult
 from app.schemas.certification import ExamCreate, ExamQuestionCreate
 from app.schemas.question import QuestionCreate
 from app.services import certification as certification_module
 from app.services.certification import CertificationService, VerificationRateLimiter
+
+
+def test_certification_preview_blocks_learner_mutations(monkeypatch):
+    monkeypatch.setattr(certifications.settings, "CERTIFICATION_READ_ONLY", True)
+
+    with pytest.raises(HTTPException) as exc_info:
+        certifications.require_certification_writable()
+
+    assert exc_info.value.status_code == 423
+    assert "chỉ có thể xem" in exc_info.value.detail
+
+
+def test_certification_mutations_can_be_enabled(monkeypatch):
+    monkeypatch.setattr(certifications.settings, "CERTIFICATION_READ_ONLY", False)
+    certifications.require_certification_writable()
 
 
 def test_proficiency_level_boundaries():
