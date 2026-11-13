@@ -138,6 +138,7 @@ class UserBasicInfo(BaseModel):
     id: UUID
     email: str
     student_id: Optional[str] = None
+    avatar_url: Optional[str] = None
     full_name: str
     roles: List[str]
     primary_role: str
@@ -153,3 +154,8 @@ class ProfileResponse(BaseModel):
     evidence: List[ProfileEvidenceOut]
     recent_tasks: List[dict]  # Recent task submissions
     upcoming_schedules: List[dict]  # Upcoming work schedules
+
+
+class AvatarResponse(BaseModel):
+    """Versioned URL returned after an avatar is uploaded."""
+    avatar_url: str

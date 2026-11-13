@@ -13,6 +13,7 @@ export interface User {
   email: string;
   first_name?: string | null;
   last_name?: string | null;
+  avatar_url?: string | null;
   full_name: string | null;
   phone?: string | null;
   roles: UserRole[];  // Array of roles

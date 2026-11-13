@@ -101,6 +101,7 @@ class UserResponse(BaseModel):
     student_id: Optional[str] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
+    avatar_url: Optional[str] = None
     full_name: str
     roles: List[str]
     primary_role: str

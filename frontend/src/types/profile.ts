@@ -116,6 +116,7 @@ export interface UserBasicInfo {
   id: string;
   email: string;
   student_id?: string | null;
+  avatar_url?: string | null;
   full_name: string;
   roles: string[];
   primary_role: string;

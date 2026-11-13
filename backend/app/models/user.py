@@ -67,6 +67,7 @@ class User(Base):
     phone = Column(String(20), nullable=True)  # Phone number from LHU
     first_name = Column(String(100), nullable=True)
     last_name = Column(String(100), nullable=True)
+    avatar_url = Column(String(500), nullable=True)
     password_hash = Column(String(512), nullable=True)
     
     # Role in TLMS system (stored as an array for backward compatibility).

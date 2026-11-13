@@ -513,6 +513,13 @@ class ApiClient {
     return response.data;
   }
 
+  async uploadProfileAvatar(file: File): Promise<{ avatar_url: string }> {
+    const formData = new FormData();
+    formData.append('avatar', file);
+    const response = await this.client.post<{ avatar_url: string }>('/profile/avatar', formData);
+    return response.data;
+  }
+
   async getUserProfile(userId: string): Promise<ProfileResponse> {
     const response = await this.client.get<ProfileResponse>(`/profile/user/${userId}`);
     return response.data;

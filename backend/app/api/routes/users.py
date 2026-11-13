@@ -51,6 +51,7 @@ def user_to_response(user: User) -> UserResponse:
         phone=user.phone,
         first_name=user.first_name,
         last_name=user.last_name,
+        avatar_url=user.avatar_url,
         full_name=user.full_name,
         roles=user.roles or ['candidate'],
         primary_role=user.primary_role,

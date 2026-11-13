@@ -31,6 +31,7 @@ class UserResponse(BaseModel):
     email: str
     first_name: Optional[str] = None
     last_name: Optional[str] = None
+    avatar_url: Optional[str] = None
     full_name: Optional[str] = None
     roles: List[str]  # Array of roles
     primary_role: str  # Highest priority role for display

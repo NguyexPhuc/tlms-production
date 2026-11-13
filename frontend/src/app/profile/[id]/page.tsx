@@ -1,7 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import Image from 'next/image';
 import { useRouter, useParams } from 'next/navigation';
+import { Camera, LoaderCircle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiClient } from '@/lib/api';
 import { User } from '@/types';
@@ -40,7 +42,8 @@ const SKILL_ICONS: Record<string, string> = {
 export default function ProfilePage() {
   const router = useRouter();
   const params = useParams();
-  const { user: currentUser, isLoading: authLoading } = useAuth();
+  const { user: currentUser, isLoading: authLoading, refreshUser } = useAuth();
+  const avatarInputRef = useRef<HTMLInputElement>(null);
   
   // If no ID provided, redirect to own profile
   const userId = (params.id as string) || currentUser?.id;
@@ -48,6 +51,38 @@ export default function ProfilePage() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<any>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarError, setAvatarError] = useState('');
+
+  const handleAvatarChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !user || user.id !== currentUser?.id) return;
+
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setAvatarError('Chỉ hỗ trợ ảnh JPG, PNG hoặc WEBP.');
+      return;
+    }
+    if (file.size > 5_000_000) {
+      setAvatarError('Ảnh đại diện không được vượt quá 5 MB.');
+      return;
+    }
+
+    setAvatarUploading(true);
+    setAvatarError('');
+    try {
+      const result = await apiClient.uploadProfileAvatar(file);
+      setUser((current) => current ? { ...current, avatar_url: result.avatar_url } : current);
+      await refreshUser();
+    } catch (error: unknown) {
+      const detail = error && typeof error === 'object' && 'response' in error
+        ? (error as { response?: { data?: { detail?: string } } }).response?.data?.detail
+        : undefined;
+      setAvatarError(detail || 'Không thể cập nhật ảnh đại diện.');
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
 
   const loadUserProfile = useCallback(async () => {
     try {
@@ -153,12 +188,49 @@ export default function ProfilePage() {
         <div className="bg-white rounded-2xl shadow-xl p-6 md:p-8">
           <div className="flex flex-col md:flex-row items-center md:items-end gap-6">
             {/* Avatar */}
-            <div className="relative">
-              <div className="w-32 h-32 md:w-40 md:h-40 rounded-full border-4 border-white shadow-2xl bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center text-white text-5xl md:text-6xl font-bold">
-                {(user.full_name || user.email)[0]?.toUpperCase()}
+            <div className="flex flex-col items-center gap-2">
+              <div className="relative">
+                <div className="relative w-32 h-32 md:w-40 md:h-40 overflow-hidden rounded-full border-4 border-white shadow-2xl bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center text-white text-5xl md:text-6xl font-bold">
+                  {user.avatar_url ? (
+                    <Image
+                      src={user.avatar_url}
+                      alt={`Ảnh đại diện của ${user.full_name || user.email}`}
+                      fill
+                      sizes="(min-width: 768px) 160px, 128px"
+                      className="object-cover"
+                      unoptimized
+                    />
+                  ) : (
+                    (user.full_name || user.email)[0]?.toUpperCase()
+                  )}
+                </div>
+                {isOwnProfile && (
+                  <>
+                    <input
+                      ref={avatarInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      onChange={handleAvatarChange}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => avatarInputRef.current?.click()}
+                      disabled={avatarUploading}
+                      title="Thay ảnh đại diện"
+                      aria-label="Thay ảnh đại diện"
+                      className="absolute bottom-1 left-1 flex h-10 w-10 items-center justify-center rounded-full border-4 border-white bg-violet-600 text-white shadow-lg transition hover:bg-violet-700 disabled:cursor-wait disabled:bg-violet-400"
+                    >
+                      {avatarUploading ? <LoaderCircle size={18} className="animate-spin" /> : <Camera size={18} />}
+                    </button>
+                  </>
+                )}
+                {user.status === 'active' && (
+                  <div className="absolute bottom-2 right-2 w-5 h-5 bg-green-500 border-4 border-white rounded-full"></div>
+                )}
               </div>
-              {user.status === 'active' && (
-                <div className="absolute bottom-2 right-2 w-5 h-5 bg-green-500 border-4 border-white rounded-full"></div>
+              {avatarError && (
+                <p className="max-w-44 text-center text-xs font-medium text-red-600">{avatarError}</p>
               )}
             </div>
 

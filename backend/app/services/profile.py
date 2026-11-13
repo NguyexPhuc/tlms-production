@@ -496,6 +496,7 @@ class ProfileService:
             id=user.id,
             email=user.email,
             student_id=user.student_id,
+            avatar_url=user.avatar_url,
             full_name=user.full_name,
             roles=user.roles or [],
             primary_role=user.primary_role
