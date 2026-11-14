@@ -4,7 +4,7 @@ import json
 import secrets
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_admin
@@ -29,6 +29,15 @@ from app.services.zalo_quiz import zalo_quiz_service
 router = APIRouter(prefix="/zalo", tags=["Zalo Daily Task Quiz"])
 
 
+def require_zalo_writable() -> None:
+    """Keep Zalo mutations disabled while the integration is in preview."""
+    if settings.ZALO_READ_ONLY:
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail="Zalo Daily Task đang phát triển. Hiện tại bạn chỉ có thể xem.",
+        )
+
+
 @router.get("/me", response_model=ZaloLinkResponse)
 async def get_my_zalo_link(
     db: AsyncSession = Depends(get_db),
@@ -45,6 +54,7 @@ async def create_zalo_link_intent(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    require_zalo_writable()
     config, link, code = await zalo_quiz_service.create_link_intent(
         db,
         current_user,
@@ -59,6 +69,7 @@ async def update_zalo_notifications(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    require_zalo_writable()
     config = await zalo_quiz_service.get_config(db)
     link = await zalo_quiz_service.set_notification_preference(db, current_user, data.enabled)
     return zalo_quiz_service.link_response(config, link)
@@ -69,6 +80,7 @@ async def revoke_zalo_link(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    require_zalo_writable()
     config = await zalo_quiz_service.get_config(db)
     link = await zalo_quiz_service.revoke_link(db, current_user)
     return zalo_quiz_service.link_response(config, link)
@@ -81,6 +93,7 @@ async def zalo_webhook(
     x_tlms_mock_secret: str = Header("", alias="X-TLMS-Mock-Secret"),
     db: AsyncSession = Depends(get_db),
 ):
+    require_zalo_writable()
     raw_body = await request.body()
     try:
         payload = json.loads(raw_body)
@@ -108,6 +121,7 @@ async def update_zalo_config(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
+    require_zalo_writable()
     config = await zalo_quiz_service.update_config(db, current_user, data)
     return zalo_quiz_service.config_response(config)
 
@@ -125,6 +139,7 @@ async def dispatch_zalo_quizzes(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin),
 ):
+    require_zalo_writable()
     return await zalo_quiz_service.dispatch_daily(db)
 
 
@@ -134,6 +149,7 @@ async def send_mock_zalo_message(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin),
 ):
+    require_zalo_writable()
     config = await zalo_quiz_service.get_config(db)
     if config.provider != ZaloProvider.MOCK:
         raise BadRequestException("Mock messages are available only with the mock provider")

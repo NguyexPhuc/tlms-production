@@ -1,7 +1,9 @@
 from datetime import datetime, timedelta
 
 import pytest
+from fastapi import HTTPException
 
+from app.api.routes import zalo
 from app.models.zalo import ZaloLinkStatus, ZaloProvider
 from app.services.zalo_adapter import (
     MockZaloAdapter,
@@ -17,6 +19,20 @@ from app.services.zalo_quiz import (
     webhook_event_key,
     ZaloQuizService,
 )
+
+
+def test_zalo_preview_blocks_mutations(monkeypatch):
+    monkeypatch.setattr(zalo.settings, "ZALO_READ_ONLY", True)
+
+    with pytest.raises(HTTPException) as exc_info:
+        zalo.require_zalo_writable()
+
+    assert exc_info.value.status_code == 423
+
+
+def test_zalo_mutations_can_be_enabled(monkeypatch):
+    monkeypatch.setattr(zalo.settings, "ZALO_READ_ONLY", False)
+    zalo.require_zalo_writable()
 
 
 def test_normalize_choice_accepts_supported_formats():

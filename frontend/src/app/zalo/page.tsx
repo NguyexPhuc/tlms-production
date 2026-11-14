@@ -7,6 +7,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { apiClient } from '@/lib/api';
 import { ZaloLink } from '@/types/zalo';
 
+const ZALO_READ_ONLY = true;
+
 function errorMessage(error: unknown): string {
   if (error && typeof error === 'object' && 'response' in error) {
     const response = (error as { response?: { data?: { detail?: string } } }).response;
@@ -44,6 +46,7 @@ export default function ZaloLinkPage() {
   }, [link?.status, loadLink]);
 
   const startLink = async () => {
+    if (ZALO_READ_ONLY) return;
     setBusy(true);
     setError('');
     setMessage('');
@@ -59,7 +62,7 @@ export default function ZaloLinkPage() {
   };
 
   const toggleNotifications = async () => {
-    if (!link) return;
+    if (!link || ZALO_READ_ONLY) return;
     setBusy(true);
     setError('');
     try {
@@ -72,6 +75,7 @@ export default function ZaloLinkPage() {
   };
 
   const revoke = async () => {
+    if (ZALO_READ_ONLY) return;
     setBusy(true);
     setError('');
     try {
@@ -107,6 +111,14 @@ export default function ZaloLinkPage() {
       </header>
 
       <main className="mx-auto max-w-3xl px-4 py-8 space-y-6">
+        {ZALO_READ_ONLY && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <p className="font-semibold text-amber-900">Đang phát triển</p>
+            <p className="mt-1 text-sm text-amber-800">
+              Bạn có thể xem trước trang tích hợp. Chức năng liên kết tài khoản và nhận Daily Task qua Zalo OA sẽ được mở sau.
+            </p>
+          </div>
+        )}
         <section className="border border-gray-200 bg-white p-6 shadow-sm">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-3">
@@ -132,13 +144,14 @@ export default function ZaloLinkPage() {
                   type="checkbox"
                   checked={consent}
                   onChange={(event) => setConsent(event.target.checked)}
+                  disabled={ZALO_READ_ONLY}
                   className="mt-0.5 h-4 w-4 accent-blue-600"
                 />
                 <span>Tôi đồng ý liên kết tài khoản và nhận thông báo Daily Task qua Zalo OA.</span>
               </label>
               <button
                 onClick={startLink}
-                disabled={!consent || busy}
+                disabled={ZALO_READ_ONLY || !consent || busy}
                 className="inline-flex items-center gap-2 bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Link2 className="h-4 w-4" />
@@ -163,7 +176,7 @@ export default function ZaloLinkPage() {
             <div className="mt-6 grid gap-3 border-t border-gray-100 pt-5 sm:grid-cols-2">
               <button
                 onClick={toggleNotifications}
-                disabled={busy}
+                disabled={ZALO_READ_ONLY || busy}
                 className="flex items-center justify-center gap-2 border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
               >
                 <Bell className="h-4 w-4" />
@@ -171,7 +184,7 @@ export default function ZaloLinkPage() {
               </button>
               <button
                 onClick={revoke}
-                disabled={busy}
+                disabled={ZALO_READ_ONLY || busy}
                 className="flex items-center justify-center gap-2 border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
               >
                 <Unlink className="h-4 w-4" /> Ngắt liên kết

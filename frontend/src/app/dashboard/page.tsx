@@ -579,7 +579,7 @@ export default function DashboardPage() {
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="text-sm font-medium text-gray-900 group-hover:text-[#1E90FF]">{item.title}</p>
-                      {item.href === '/certifications' && (
+                      {['/certifications', '/zalo', '/admin/zalo'].includes(item.href) && (
                         <span className="rounded bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
                           Đang phát triển
                         </span>

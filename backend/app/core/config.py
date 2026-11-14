@@ -120,6 +120,7 @@ class Settings(BaseSettings):
     WEEKLY_CUP_DURATION_HOURS: int = 24
 
     # Optional Zalo OA Daily Task Quiz integration. Secrets stay in environment variables.
+    ZALO_READ_ONLY: bool = True
     ZALO_INTEGRATION_ENABLED: bool = False
     ZALO_PROVIDER: str = "mock"
     ZALO_APP_ID: str = ""

@@ -7,6 +7,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { apiClient } from '@/lib/api';
 import { ZaloAdminDashboard, ZaloIntegrationConfig } from '@/types/zalo';
 
+const ZALO_READ_ONLY = true;
+
 function getError(error: unknown): string {
   if (error && typeof error === 'object' && 'response' in error) {
     return (error as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Yêu cầu thất bại.';
@@ -47,7 +49,7 @@ export default function ZaloAdminPage() {
   };
 
   const save = async () => {
-    if (!form) return;
+    if (!form || ZALO_READ_ONLY) return;
     setBusy(true);
     setError('');
     try {
@@ -73,6 +75,7 @@ export default function ZaloAdminPage() {
   };
 
   const dispatch = async () => {
+    if (ZALO_READ_ONLY) return;
     setBusy(true);
     setError('');
     try {
@@ -108,6 +111,14 @@ export default function ZaloAdminPage() {
       </header>
 
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-7">
+        {ZALO_READ_ONLY && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <p className="font-semibold text-amber-900">Đang phát triển</p>
+            <p className="mt-1 text-sm text-amber-800">
+              Trang quản trị hiện chỉ dùng để xem trước. Cấu hình và gửi Daily Task qua Zalo OA đang tạm khóa.
+            </p>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
           {stats.map(([label, value]) => (
             <div key={String(label)} className="border border-gray-200 bg-white p-4 shadow-sm">
@@ -121,15 +132,15 @@ export default function ZaloAdminPage() {
             <div><h2 className="font-semibold">Cấu hình</h2><p className="mt-1 text-xs text-gray-500">Webhook: {form.webhook_url}</p></div>
             <div className="flex gap-2">
               <button onClick={load} className="border border-gray-300 p-2 hover:bg-gray-50" title="Làm mới"><RefreshCw className="h-4 w-4" /></button>
-              <button onClick={dispatch} disabled={busy || !form.effective_enabled} className="inline-flex items-center gap-2 bg-green-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"><Send className="h-4 w-4" /> Gửi ngay</button>
-              <button onClick={save} disabled={busy} className="inline-flex items-center gap-2 bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"><Save className="h-4 w-4" /> Lưu</button>
+              <button onClick={dispatch} disabled={ZALO_READ_ONLY || busy || !form.effective_enabled} className="inline-flex items-center gap-2 bg-green-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"><Send className="h-4 w-4" /> Gửi ngay</button>
+              <button onClick={save} disabled={ZALO_READ_ONLY || busy} className="inline-flex items-center gap-2 bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"><Save className="h-4 w-4" /> Lưu</button>
             </div>
           </div>
 
           {!form.environment_enabled && <div className="mt-4 border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">Feature flag môi trường đang tắt.</div>}
           {form.provider === 'zalo_oa' && !form.oa_configured && <div className="mt-4 border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">Thiếu credentials Zalo OA trong biến môi trường.</div>}
 
-          <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <fieldset disabled={ZALO_READ_ONLY} className="mt-5 grid gap-4 disabled:cursor-not-allowed disabled:opacity-60 sm:grid-cols-2 lg:grid-cols-4">
             <label className="text-sm"><span className="block text-gray-600">Trạng thái</span><input type="checkbox" checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} className="mt-3 h-5 w-5 accent-blue-600" /></label>
             <label className="text-sm"><span className="block text-gray-600">Provider</span><select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value as 'mock' | 'zalo_oa' })} className="mt-1 w-full border border-gray-300 px-3 py-2"><option value="mock">Mock</option><option value="zalo_oa">Zalo OA</option></select></label>
             <label className="text-sm"><span className="block text-gray-600">Giờ gửi</span><div className="mt-1 grid grid-cols-2 gap-2"><input type="number" min="0" max="23" value={form.send_hour} onChange={(e) => updateNumber('send_hour', e.target.value)} className="border border-gray-300 px-3 py-2"/><input type="number" min="0" max="59" value={form.send_minute} onChange={(e) => updateNumber('send_minute', e.target.value)} className="border border-gray-300 px-3 py-2"/></div></label>
@@ -138,7 +149,7 @@ export default function ZaloAdminPage() {
             <label className="text-sm"><span className="block text-gray-600">Hết hạn (phút)</span><input type="number" min="15" max="1440" value={form.session_ttl_minutes} onChange={(e) => updateNumber('session_ttl_minutes', e.target.value)} className="mt-1 w-full border border-gray-300 px-3 py-2"/></label>
             <label className="text-sm"><span className="block text-gray-600">Cửa sổ tương tác (ngày)</span><input type="number" min="1" max="7" value={form.send_window_days} onChange={(e) => updateNumber('send_window_days', e.target.value)} className="mt-1 w-full border border-gray-300 px-3 py-2"/></label>
             <label className="text-sm"><span className="block text-gray-600">Retry tối đa</span><input type="number" min="0" max="10" value={form.max_retries} onChange={(e) => updateNumber('max_retries', e.target.value)} className="mt-1 w-full border border-gray-300 px-3 py-2"/></label>
-          </div>
+          </fieldset>
         </section>
 
         {message && <div className="border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">{message}</div>}
