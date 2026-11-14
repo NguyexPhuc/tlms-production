@@ -3,6 +3,7 @@ Admin Routes - System Administration
 Includes sensitive operations with enhanced security
 """
 import logging
+from datetime import date
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Header, Body
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,19 @@ from app.schemas.mongo_import import ImportResult
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["Admin Operations"])
+
+
+@router.post("/report-demo/seed")
+async def seed_report_demo_data(
+    target_date: date,
+    admin_user: User = Depends(get_admin_user),
+):
+    """Temporary admin-only trigger used to prepare the report dataset."""
+    from app.scripts.seed_report_demo import seed
+
+    logger.info("Report demo seed requested by %s for %s", admin_user.email, target_date)
+    await seed(target_date, dry_run=False)
+    return {"success": True, "target_date": target_date, "message": "Report demo data prepared"}
 
 
 @router.post("/import-users", response_model=ImportResult)
