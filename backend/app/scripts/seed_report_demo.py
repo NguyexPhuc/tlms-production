@@ -139,6 +139,21 @@ async def ensure_quests(db, user: User, index: int, target_date: date) -> tuple[
         ).scalars().all()
     )
 
+    if len(quests) > QUEST_LIMIT:
+        removable = [
+            quest
+            for quest in quests[QUEST_LIMIT:]
+            if quest.status == DailyQuestStatus.PENDING
+            and not quest.proof_text
+            and not quest.proof_link
+            and not quest.proof_image_url
+        ]
+        for quest in removable:
+            await db.delete(quest)
+            quests.remove(quest)
+        if removable:
+            await db.flush()
+
     for position in range(len(quests), QUEST_LIMIT):
         title, description, difficulty, reward = QUEST_TEMPLATES[position]
         quest = DailyQuest(
