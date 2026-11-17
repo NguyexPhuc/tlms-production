@@ -15,11 +15,13 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     String,
     Text,
     UniqueConstraint,
+    text,
     Enum as SQLEnum,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -50,6 +52,32 @@ class QuestionAnswerStatus(str, Enum):
     AI_REVIEWED = "ai_reviewed"
     APPROVED = "approved"
     REJECTED = "rejected"
+
+
+class ResearchDataOrigin(str, Enum):
+    """Provenance marker for research records."""
+    UNKNOWN = "UNKNOWN"
+    REAL = "REAL"
+    SYNTHETIC = "SYNTHETIC"
+    DEMO = "DEMO"
+    TEST = "TEST"
+    SEED = "SEED"
+
+
+class ResearchExperimentGroup(str, Enum):
+    """Supported experiment assignments without coupling them to user accounts."""
+    NONE = "NONE"
+    FIXED = "FIXED"
+    ADAPTIVE = "ADAPTIVE"
+
+
+class ResearchConsentStatus(str, Enum):
+    """Consent lifecycle for research participation."""
+    NOT_REQUESTED = "NOT_REQUESTED"
+    PENDING = "PENDING"
+    GRANTED = "GRANTED"
+    DECLINED = "DECLINED"
+    WITHDRAWN = "WITHDRAWN"
 
 
 class PromotionStatus(str, Enum):
@@ -319,6 +347,149 @@ class UserQuestionAnswer(Base):
     user = relationship("User", foreign_keys=[user_id], backref="question_answers")
     question = relationship("Question", backref="answers")
     reviewed_by = relationship("User", foreign_keys=[reviewed_by_id])
+
+
+class ResearchParticipation(Base):
+    """Research enrollment kept separate from the operational user profile."""
+    __tablename__ = "research_participation"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_research_participation_user_id"),
+        Index("ix_research_participation_user_id", "user_id"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    study_code = Column(String(80), nullable=True)
+    experiment_group = Column(String(20), default=ResearchExperimentGroup.NONE.value, nullable=False)
+    enrolled_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    consent_status = Column(String(20), default=ResearchConsentStatus.NOT_REQUESTED.value, nullable=False)
+    data_origin = Column(String(20), default=ResearchDataOrigin.UNKNOWN.value, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    user = relationship("User", foreign_keys=[user_id], backref="research_participation")
+
+
+class QuestionAttemptHistory(Base):
+    """Immutable snapshot of every question submission."""
+    __tablename__ = "question_attempt_history"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "question_id",
+            "attempt_number",
+            name="uq_question_attempt_history_user_question_attempt",
+        ),
+        Index("ix_question_attempt_history_user_id", "user_id"),
+        Index("ix_question_attempt_history_question_id", "question_id"),
+        Index("ix_question_attempt_history_created_at", "created_at"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    question_id = Column(UUID(as_uuid=True), ForeignKey("questions.id", ondelete="CASCADE"), nullable=False)
+    roadmap_id = Column(UUID(as_uuid=True), ForeignKey("member_roadmaps.id", ondelete="SET NULL"), nullable=True)
+    roadmap_week = Column(Integer, nullable=True)
+    skill_key = Column(String(80), nullable=True)
+    topic = Column(String(120), nullable=True)
+    question_difficulty = Column(Float, nullable=True)
+    mastery_before = Column(Float, nullable=True)
+    difficulty_before = Column(Float, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    submitted_at = Column(DateTime, nullable=False)
+    response_time_seconds = Column(Float, nullable=True)
+    attempt_number = Column(Integer, nullable=False)
+    answer_snapshot = Column(Text, nullable=False)
+    question_title_snapshot = Column(String(255), nullable=False)
+    question_text_snapshot = Column(Text, nullable=False)
+    score = Column(Float, nullable=True)
+    is_correct = Column(Boolean, nullable=True)
+    evaluation_method = Column(String(40), nullable=False)
+    ai_score = Column(Float, nullable=True)
+    ai_confidence = Column(Float, nullable=True)
+    ai_provider = Column(String(40), nullable=True)
+    ai_model = Column(String(120), nullable=True)
+    prompt_version = Column(String(80), nullable=True)
+    manager_score = Column(Float, nullable=True)
+    final_score = Column(Float, nullable=True)
+    mastery_after = Column(Float, nullable=True)
+    difficulty_after = Column(Float, nullable=True)
+    adaptation_reason = Column(String(80), nullable=True)
+    algorithm_version = Column(String(80), nullable=False)
+    question_version = Column(String(80), nullable=True)
+    data_origin = Column(String(20), default=ResearchDataOrigin.UNKNOWN.value, nullable=False)
+    experiment_group = Column(String(20), default=ResearchExperimentGroup.NONE.value, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", foreign_keys=[user_id])
+    question = relationship("Question", foreign_keys=[question_id])
+    roadmap = relationship("MemberRoadmap", foreign_keys=[roadmap_id])
+
+
+class SkillMasteryHistory(Base):
+    """Immutable before/after skill state produced by an actual engine update."""
+    __tablename__ = "skill_mastery_history"
+    __table_args__ = (
+        Index("ix_skill_mastery_history_user_skill", "user_id", "skill_key"),
+        Index("ix_skill_mastery_history_created_at", "created_at"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    skill_key = Column(String(80), nullable=False)
+    mastery_before = Column(Float, nullable=True)
+    mastery_after = Column(Float, nullable=True)
+    confidence_before = Column(Float, nullable=True)
+    confidence_after = Column(Float, nullable=True)
+    difficulty_before = Column(Float, nullable=True)
+    difficulty_after = Column(Float, nullable=True)
+    trigger_type = Column(String(40), nullable=False)
+    trigger_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("question_attempt_history.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    algorithm_version = Column(String(80), nullable=False)
+    data_origin = Column(String(20), default=ResearchDataOrigin.UNKNOWN.value, nullable=False)
+    experiment_group = Column(String(20), default=ResearchExperimentGroup.NONE.value, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", foreign_keys=[user_id])
+    question_attempt = relationship("QuestionAttemptHistory", foreign_keys=[trigger_id])
+
+
+class QuestionServeSession(Base):
+    """First time a question was served before its next submission."""
+    __tablename__ = "question_serve_sessions"
+    __table_args__ = (
+        Index("ix_question_serve_sessions_user_question", "user_id", "question_id"),
+        Index(
+            "uq_question_serve_sessions_active",
+            "user_id",
+            "question_id",
+            unique=True,
+            postgresql_where=text("consumed_at IS NULL"),
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    question_id = Column(UUID(as_uuid=True), ForeignKey("questions.id", ondelete="CASCADE"), nullable=False)
+    started_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    consumed_at = Column(DateTime, nullable=True)
+    attempt_history_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("question_attempt_history.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    data_origin = Column(String(20), default=ResearchDataOrigin.UNKNOWN.value, nullable=False)
+    experiment_group = Column(String(20), default=ResearchExperimentGroup.NONE.value, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", foreign_keys=[user_id])
+    question = relationship("Question", foreign_keys=[question_id])
+    attempt_history = relationship("QuestionAttemptHistory", foreign_keys=[attempt_history_id])
 
 
 class Notification(Base):

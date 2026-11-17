@@ -91,6 +91,8 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
     AI_MODEL: str = ""
+    ADAPTIVE_ALGORITHM_VERSION: str = "adaptive-v1"
+    ANSWER_EVALUATION_PROMPT_VERSION: str = "answer-eval-v1"
     DAILY_QUEST_LIMIT: int = 5
     DAILY_QUEST_RESET_HOUR: int = 0
     AI_AUTO_PASS_SCORE: int = 70

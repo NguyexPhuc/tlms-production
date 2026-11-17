@@ -1,4 +1,5 @@
 """Question service for member development."""
+import hashlib
 import json
 import logging
 import re
@@ -7,16 +8,25 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import get_settings
 from app.core.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.models.development import (
+    MemberRoadmap,
     MemberSkillProfile,
     Question,
+    QuestionAttemptHistory,
     QuestionAnswerStatus,
+    QuestionServeSession,
     QuestionStatus,
+    ResearchDataOrigin,
+    ResearchExperimentGroup,
+    ResearchParticipation,
+    SkillMasteryHistory,
     UserQuestionAnswer,
 )
 from app.models.task import TaskCreatorType, TaskDifficulty
@@ -26,6 +36,9 @@ from app.services.ai_json import ai_json_service
 from app.services.notification import notification_service
 
 logger = logging.getLogger(__name__)
+
+ADAPTIVE_ALGORITHM_VERSION = get_settings().ADAPTIVE_ALGORITHM_VERSION
+ANSWER_EVALUATION_PROMPT_VERSION = get_settings().ANSWER_EVALUATION_PROMPT_VERSION
 
 
 BASELINE_QUESTIONS: List[Dict[str, Any]] = [
@@ -654,6 +667,256 @@ class QuestionService:
         except ValueError:
             return TaskDifficulty.MEDIUM
 
+    async def _research_context(self, db: AsyncSession, user_id: UUID) -> tuple[str, str]:
+        participation = (
+            await db.execute(
+                select(ResearchParticipation).where(ResearchParticipation.user_id == user_id)
+            )
+        ).scalar_one_or_none()
+        if participation is None:
+            return ResearchDataOrigin.UNKNOWN.value, ResearchExperimentGroup.NONE.value
+        return participation.data_origin, participation.experiment_group
+
+    async def _roadmap_snapshot(self, db: AsyncSession, user_id: UUID) -> tuple[Optional[UUID], Optional[int]]:
+        roadmap = (
+            await db.execute(
+                select(MemberRoadmap)
+                .where(MemberRoadmap.user_id == user_id)
+                .order_by(MemberRoadmap.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if roadmap is None:
+            return None, None
+        return roadmap.id, roadmap.current_week
+
+    async def _record_served_questions(
+        self,
+        db: AsyncSession,
+        user: User,
+        questions: List[Question],
+    ) -> None:
+        """Persist the first serve time without changing the question response."""
+        if not questions:
+            return
+        question_ids = [question.id for question in questions]
+        active_ids = set(
+            (
+                await db.execute(
+                    select(QuestionServeSession.question_id).where(
+                        QuestionServeSession.user_id == user.id,
+                        QuestionServeSession.question_id.in_(question_ids),
+                        QuestionServeSession.consumed_at.is_(None),
+                    )
+                )
+            ).scalars().all()
+        )
+        data_origin, experiment_group = await self._research_context(db, user.id)
+        now = datetime.utcnow()
+        for question_id in question_ids:
+            if question_id not in active_ids:
+                try:
+                    async with db.begin_nested():
+                        db.add(
+                            QuestionServeSession(
+                                user_id=user.id,
+                                question_id=question_id,
+                                started_at=now,
+                                data_origin=data_origin,
+                                experiment_group=experiment_group,
+                            )
+                        )
+                        await db.flush()
+                except IntegrityError:
+                    logger.debug(
+                        "Question %s was concurrently served to user %s",
+                        question_id,
+                        user.id,
+                    )
+
+    async def _active_serve_session(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        question_id: UUID,
+    ) -> Optional[QuestionServeSession]:
+        return (
+            await db.execute(
+                select(QuestionServeSession)
+                .where(
+                    QuestionServeSession.user_id == user_id,
+                    QuestionServeSession.question_id == question_id,
+                    QuestionServeSession.consumed_at.is_(None),
+                )
+                .order_by(QuestionServeSession.started_at.desc())
+                .with_for_update()
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+    async def _lock_research_subject(self, db: AsyncSession, user_id: UUID) -> None:
+        # Serializes attempt numbering and mastery updates for one learner.
+        await db.execute(select(User.id).where(User.id == user_id).with_for_update())
+
+    async def _next_attempt_number(self, db: AsyncSession, user_id: UUID, question_id: UUID) -> int:
+        latest = (
+            await db.execute(
+                select(func.max(QuestionAttemptHistory.attempt_number)).where(
+                    QuestionAttemptHistory.user_id == user_id,
+                    QuestionAttemptHistory.question_id == question_id,
+                )
+            )
+        ).scalar_one_or_none()
+        return int(latest or 0) + 1
+
+    def _evaluation_metadata(self, breakdown: Dict[str, Any]) -> tuple[str, Optional[str], Optional[str], Optional[str]]:
+        mode = str(breakdown.get("grading_mode") or "local_fallback").lower()
+        if mode == "ai":
+            return (
+                "AI",
+                str(breakdown.get("ai_provider") or "") or None,
+                str(breakdown.get("ai_model") or "") or None,
+                str(breakdown.get("prompt_version") or ANSWER_EVALUATION_PROMPT_VERSION),
+            )
+        if mode == "objective":
+            return "OBJECTIVE", None, None, None
+        return "LOCAL_FALLBACK", None, None, ANSWER_EVALUATION_PROMPT_VERSION
+
+    def _question_version(self, question: Question) -> str:
+        payload = "\n".join(
+            [
+                question.title or "",
+                question.question or "",
+                question.skill_key or "",
+                question.topic or "",
+                str(question.numeric_difficulty or ""),
+            ]
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+    def _build_attempt_history(
+        self,
+        *,
+        user_id: UUID,
+        question: Question,
+        answer_text: str,
+        score: float,
+        confidence: float,
+        breakdown: Dict[str, Any],
+        skill_change: Dict[str, Any],
+        is_correct: bool,
+        attempt_number: int,
+        submitted_at: datetime,
+        started_at: Optional[datetime],
+        roadmap_id: Optional[UUID],
+        roadmap_week: Optional[int],
+        data_origin: str,
+        experiment_group: str,
+    ) -> QuestionAttemptHistory:
+        response_time = None
+        if started_at is not None:
+            response_time = round(max(0.0, (submitted_at - started_at).total_seconds()), 3)
+        evaluation_method, ai_provider, ai_model, prompt_version = self._evaluation_metadata(breakdown)
+        return QuestionAttemptHistory(
+            user_id=user_id,
+            question_id=question.id,
+            roadmap_id=roadmap_id,
+            roadmap_week=roadmap_week,
+            skill_key=question.skill_key or question.category or "general",
+            topic=question.topic,
+            question_difficulty=question.numeric_difficulty,
+            mastery_before=skill_change["mastery_before"],
+            difficulty_before=skill_change["difficulty_before"],
+            started_at=started_at,
+            submitted_at=submitted_at,
+            response_time_seconds=response_time,
+            attempt_number=attempt_number,
+            answer_snapshot=answer_text,
+            question_title_snapshot=question.title,
+            question_text_snapshot=question.question,
+            score=score,
+            is_correct=is_correct,
+            evaluation_method=evaluation_method,
+            ai_score=score if evaluation_method == "AI" else None,
+            ai_confidence=confidence if evaluation_method == "AI" else None,
+            ai_provider=ai_provider,
+            ai_model=ai_model,
+            prompt_version=prompt_version,
+            final_score=score,
+            mastery_after=skill_change["mastery_after"],
+            difficulty_after=skill_change["difficulty_after"],
+            adaptation_reason=skill_change["adaptation_reason"],
+            algorithm_version=ADAPTIVE_ALGORITHM_VERSION,
+            question_version=self._question_version(question),
+            data_origin=data_origin,
+            experiment_group=experiment_group,
+            created_at=submitted_at,
+        )
+
+    async def _record_research_attempt(
+        self,
+        db: AsyncSession,
+        *,
+        user: User,
+        question: Question,
+        answer_text: str,
+        score: float,
+        confidence: float,
+        breakdown: Dict[str, Any],
+        skill_change: Dict[str, Any],
+        is_correct: bool,
+    ) -> QuestionAttemptHistory:
+        submitted_at = datetime.utcnow()
+        serve_session = await self._active_serve_session(db, user.id, question.id)
+        started_at = serve_session.started_at if serve_session else None
+
+        roadmap_id, roadmap_week = await self._roadmap_snapshot(db, user.id)
+        data_origin, experiment_group = await self._research_context(db, user.id)
+        attempt_number = await self._next_attempt_number(db, user.id, question.id)
+        attempt = self._build_attempt_history(
+            user_id=user.id,
+            question=question,
+            answer_text=answer_text,
+            score=score,
+            confidence=confidence,
+            breakdown=breakdown,
+            skill_change=skill_change,
+            is_correct=is_correct,
+            attempt_number=attempt_number,
+            submitted_at=submitted_at,
+            started_at=started_at,
+            roadmap_id=roadmap_id,
+            roadmap_week=roadmap_week,
+            data_origin=data_origin,
+            experiment_group=experiment_group,
+        )
+        db.add(attempt)
+        await db.flush()
+
+        db.add(
+            SkillMasteryHistory(
+                user_id=user.id,
+                skill_key=question.skill_key or question.category or "general",
+                mastery_before=skill_change["mastery_before"],
+                mastery_after=skill_change["mastery_after"],
+                confidence_before=skill_change["confidence_before"],
+                confidence_after=skill_change["confidence_after"],
+                difficulty_before=skill_change["difficulty_before"],
+                difficulty_after=skill_change["difficulty_after"],
+                trigger_type="QUESTION",
+                trigger_id=attempt.id,
+                algorithm_version=ADAPTIVE_ALGORITHM_VERSION,
+                data_origin=data_origin,
+                experiment_group=experiment_group,
+                created_at=submitted_at,
+            )
+        )
+        if serve_session is not None:
+            serve_session.consumed_at = submitted_at
+            serve_session.attempt_history_id = attempt.id
+        await db.flush()
+        return attempt
+
     async def ensure_system_question_bank(self, db: AsyncSession) -> None:
         all_items = [
             *BASELINE_QUESTIONS,
@@ -852,10 +1115,22 @@ class QuestionService:
             confidence = min(max(confidence, 0.0), 1.0)
             feedback = str(result.get("feedback") or "").strip()
             breakdown = self._normalize_ai_breakdown(result, score)
+            settings = get_settings()
+            breakdown["grading_mode"] = "ai"
+            breakdown["ai_provider"] = settings.AI_PROVIDER.lower().strip() or "openai"
+            breakdown["ai_model"] = settings.AI_MODEL.strip() or None
+            breakdown["prompt_version"] = ANSWER_EVALUATION_PROMPT_VERSION
             return score, feedback or "AI đã chấm câu trả lời.", confidence, breakdown
         except Exception as exc:
             logger.warning("Question AI scoring failed for %s: %s", question.id, exc)
-            return score_text_answer(answer_text, question.expected_answer, question.accepted_concepts)
+            score, feedback, confidence, breakdown = score_text_answer(
+                answer_text,
+                question.expected_answer,
+                question.accepted_concepts,
+            )
+            breakdown["grading_mode"] = "local_fallback"
+            breakdown["prompt_version"] = ANSWER_EVALUATION_PROMPT_VERSION
+            return score, feedback, confidence, breakdown
 
     async def _update_skill_profile(
         self,
@@ -864,7 +1139,7 @@ class QuestionService:
         question: Question,
         score: float,
         confidence: float,
-    ) -> None:
+    ) -> Dict[str, Any]:
         skill_key = question.skill_key or question.category or "general"
         profile = (
             await db.execute(
@@ -880,6 +1155,8 @@ class QuestionService:
             db.add(profile)
 
         previous_mastery = float(profile.mastery_score or 50.0)
+        previous_confidence = float(profile.confidence if profile.confidence is not None else 0.3)
+        previous_difficulty = float(profile.current_difficulty or 3.0)
         adjustment = (score - previous_mastery) * min(max(confidence, 0.2), 1.0) * 0.18
         profile.mastery_score = round(min(max(previous_mastery + adjustment, 0.0), 100.0), 1)
         profile.confidence = round(min(1.0, max(float(profile.confidence or 0.0), confidence) + 0.03), 2)
@@ -889,11 +1166,16 @@ class QuestionService:
         profile.last_score = score
         profile.last_evaluated_at = datetime.utcnow()
 
-        current_difficulty = float(profile.current_difficulty or 3.0)
+        current_difficulty = previous_difficulty
+        adaptation_reason = "STABLE"
         if score >= 85 and confidence >= 0.55:
             profile.current_difficulty = round(min(10.0, current_difficulty + 0.5), 1)
+            if profile.current_difficulty > current_difficulty:
+                adaptation_reason = "HIGH_RECENT_PERFORMANCE"
         elif score < 50 and confidence >= 0.55:
             profile.current_difficulty = round(max(1.0, current_difficulty - 0.5), 1)
+            if profile.current_difficulty < current_difficulty:
+                adaptation_reason = "LOW_RECENT_PERFORMANCE"
 
         topic = question.topic or skill_key
         weak_topics = set(profile.weak_topics or [])
@@ -907,6 +1189,15 @@ class QuestionService:
         profile.weak_topics = sorted(weak_topics)
         profile.strong_topics = sorted(strong_topics)
         profile.updated_at = datetime.utcnow()
+        return {
+            "mastery_before": previous_mastery,
+            "mastery_after": float(profile.mastery_score),
+            "confidence_before": previous_confidence,
+            "confidence_after": float(profile.confidence),
+            "difficulty_before": previous_difficulty,
+            "difficulty_after": float(profile.current_difficulty),
+            "adaptation_reason": adaptation_reason,
+        }
 
     async def create_question(
         self,
@@ -1002,7 +1293,9 @@ class QuestionService:
 
         answers = await self._user_answers(db, user)
         profiles = await self._skill_profiles(db, user)
-        return self._sort_questions_for_user(questions, answers, profiles)
+        selected = self._sort_questions_for_user(questions, answers, profiles)
+        await self._record_served_questions(db, user, selected)
+        return selected
 
     async def submit_answer(
         self,
@@ -1041,6 +1334,9 @@ class QuestionService:
                 )
             ).scalar_one()
 
+        ai_score, ai_feedback, ai_confidence, ai_breakdown = await self._evaluate_answer_with_ai(question, answer_text)
+        await self._lock_research_subject(db, user.id)
+
         existing = (
             await db.execute(
                 select(UserQuestionAnswer)
@@ -1052,7 +1348,6 @@ class QuestionService:
             )
         ).scalar_one_or_none()
 
-        ai_score, ai_feedback, ai_confidence, ai_breakdown = await self._evaluate_answer_with_ai(question, answer_text)
         previous_points = existing.points_awarded if existing and existing.points_awarded else 0
         points_awarded = int(round((question.points or 0) * (ai_score / 100.0)))
         points_delta = max(0, points_awarded - previous_points)
@@ -1088,7 +1383,18 @@ class QuestionService:
             user.current_xp += points_delta
             user.level = user.calculate_level()
 
-        await self._update_skill_profile(db, user, question, ai_score, ai_confidence)
+        skill_change = await self._update_skill_profile(db, user, question, ai_score, ai_confidence)
+        await self._record_research_attempt(
+            db,
+            user=user,
+            question=question,
+            answer_text=answer_text,
+            score=ai_score,
+            confidence=ai_confidence,
+            breakdown=ai_breakdown,
+            skill_change=skill_change,
+            is_correct=ai_score >= get_settings().AI_AUTO_PASS_SCORE,
+        )
 
         await notification_service.create_notification(
             db,
@@ -1136,6 +1442,7 @@ class QuestionService:
         is_correct = choice == correct_option
         score = 100.0 if is_correct else 0.0
         feedback = "Correct answer." if is_correct else f"Correct option: {correct_option}."
+        await self._lock_research_subject(db, user.id)
         existing = (
             await db.execute(
                 select(UserQuestionAnswer).where(
@@ -1187,7 +1494,18 @@ class QuestionService:
             user.current_xp += points_delta
             user.level = user.calculate_level()
 
-        await self._update_skill_profile(db, user, question, score, 1.0)
+        skill_change = await self._update_skill_profile(db, user, question, score, 1.0)
+        await self._record_research_attempt(
+            db,
+            user=user,
+            question=question,
+            answer_text=answer_text,
+            score=score,
+            confidence=1.0,
+            breakdown=breakdown,
+            skill_change=skill_change,
+            is_correct=is_correct,
+        )
         await notification_service.create_notification(
             db,
             user_id=user.id,
