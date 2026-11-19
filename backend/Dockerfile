@@ -13,7 +13,7 @@ FROM python:3.12-slim AS runner
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends fonts-dejavu-core && \
+RUN apt-get update && apt-get install -y --no-install-recommends fonts-dejavu-core postgresql-client && \
     rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security

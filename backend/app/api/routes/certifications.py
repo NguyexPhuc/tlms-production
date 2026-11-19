@@ -13,7 +13,15 @@ from app.api.deps import get_current_user, require_admin, require_mentor
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.exceptions import NotFoundException
-from app.models.certification import Certificate, CertificateAuditLog, CertificateTemplate, CertificateVerificationLog
+from app.models.certification import (
+    AssessmentPurpose,
+    Certificate,
+    CertificateAuditLog,
+    CertificateTemplate,
+    CertificateVerificationLog,
+    Exam,
+    ExamAttempt,
+)
 from app.models.user import User
 from app.schemas.certification import (
     AdminExamResultResponse,
@@ -47,13 +55,34 @@ router = APIRouter(tags=["Digital Certification"])
 settings = get_settings()
 
 
-def require_certification_writable() -> None:
+def require_certification_writable(
+    assessment_purpose: str = AssessmentPurpose.CERTIFICATION.value,
+) -> None:
     """Keep learner mutations disabled while certification is in preview."""
-    if settings.CERTIFICATION_READ_ONLY:
+    if (
+        settings.CERTIFICATION_READ_ONLY
+        and assessment_purpose == AssessmentPurpose.CERTIFICATION.value
+    ):
         raise HTTPException(
             status_code=status.HTTP_423_LOCKED,
             detail="Bài thi và Chứng chỉ đang phát triển. Hiện tại bạn chỉ có thể xem.",
         )
+
+
+async def require_exam_writable(db: AsyncSession, exam_id: UUID) -> Exam:
+    exam = await db.get(Exam, exam_id)
+    if exam is None:
+        raise NotFoundException("Exam not found")
+    require_certification_writable(exam.assessment_purpose)
+    return exam
+
+
+async def require_attempt_writable(db: AsyncSession, attempt_id: UUID) -> ExamAttempt:
+    attempt = await db.get(ExamAttempt, attempt_id)
+    if attempt is None:
+        raise NotFoundException("Exam attempt not found")
+    await require_exam_writable(db, attempt.exam_id)
+    return attempt
 
 
 @router.get("/courses", response_model=list[CourseResponse])
@@ -169,7 +198,7 @@ async def start_exam(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    require_certification_writable()
+    await require_exam_writable(db, exam_id)
     return await certification_service.start_exam(db, current_user, exam_id)
 
 
@@ -180,7 +209,7 @@ async def submit_exam(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    require_certification_writable()
+    await require_attempt_writable(db, attempt_id)
     return await certification_service.submit_exam(db, current_user, attempt_id, payload.answers)
 
 
@@ -191,8 +220,6 @@ async def get_exam_result(
     current_user: User = Depends(get_current_user),
 ):
     # Ownership is checked before exposing the result.
-    from app.models.certification import ExamAttempt
-
     attempt = await db.get(ExamAttempt, attempt_id)
     if not attempt:
         raise NotFoundException("Exam attempt not found")

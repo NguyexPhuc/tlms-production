@@ -80,6 +80,36 @@ class ResearchConsentStatus(str, Enum):
     WITHDRAWN = "WITHDRAWN"
 
 
+class ResearchStudyStatus(str, Enum):
+    """Lifecycle state for a versioned research study configuration."""
+    DRAFT = "DRAFT"
+    PILOT = "PILOT"
+    ACTIVE = "ACTIVE"
+    CLOSED = "CLOSED"
+
+
+class ResearchQuestionPhase(str, Enum):
+    """Question-bank partition for one research study."""
+    PRE = "PRE"
+    TRAIN = "TRAIN"
+    POST = "POST"
+
+
+class QuestionVerificationStatus(str, Enum):
+    """Minimal provenance review state for research exports."""
+    UNVERIFIED = "UNVERIFIED"
+    VERIFIED = "VERIFIED"
+    REJECTED = "REJECTED"
+
+
+class ResponseTimeStatus(str, Enum):
+    """Quality marker for an observed question response duration."""
+    VALID = "VALID"
+    MISSING_START = "MISSING_START"
+    INVALID_CLOCK = "INVALID_CLOCK"
+    OUTLIER = "OUTLIER"
+
+
 class PromotionStatus(str, Enum):
     """Promotion review workflow status."""
     ELIGIBLE = "eligible"
@@ -282,6 +312,19 @@ class Question(Base):
     question_type = Column(String(40), default="short_answer", nullable=False)
     numeric_difficulty = Column(Float, default=3.0, nullable=False)
     source = Column(String(40), default="manager", nullable=False)
+    source_name = Column(String(160), nullable=True)
+    source_url = Column(String(1000), nullable=True)
+    source_license = Column(String(120), nullable=True)
+    is_original = Column(Boolean, nullable=True)
+    is_adapted = Column(Boolean, nullable=True)
+    parent_question_id = Column(UUID(as_uuid=True), ForeignKey("questions.id", ondelete="SET NULL"), nullable=True)
+    verified_status = Column(
+        String(20),
+        default=QuestionVerificationStatus.UNVERIFIED.value,
+        nullable=False,
+    )
+    verified_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    verified_at = Column(DateTime, nullable=True)
     learning_objective = Column(Text, nullable=True)
     is_baseline = Column(Boolean, default=False, nullable=False)
     points = Column(Integer, default=0, nullable=False)
@@ -312,6 +355,8 @@ class Question(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     created_by = relationship("User", foreign_keys=[created_by_id], backref="created_questions")
+    parent_question = relationship("Question", remote_side=[id], foreign_keys=[parent_question_id])
+    verified_by = relationship("User", foreign_keys=[verified_by_id])
 
 
 class UserQuestionAnswer(Base):
@@ -354,21 +399,160 @@ class ResearchParticipation(Base):
     __tablename__ = "research_participation"
     __table_args__ = (
         UniqueConstraint("user_id", name="uq_research_participation_user_id"),
+        UniqueConstraint(
+            "participant_code",
+            name="uq_research_participation_participant_code",
+        ),
         Index("ix_research_participation_user_id", "user_id"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    participant_code = Column(
+        String(20),
+        nullable=False,
+        server_default=text("'P' || to_char(nextval('research_participant_code_seq'), 'FM000000')"),
+    )
     study_code = Column(String(80), nullable=True)
     experiment_group = Column(String(20), default=ResearchExperimentGroup.NONE.value, nullable=False)
     enrolled_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
     consent_status = Column(String(20), default=ResearchConsentStatus.NOT_REQUESTED.value, nullable=False)
+    consent_granted_at = Column(DateTime, nullable=True)
     data_origin = Column(String(20), default=ResearchDataOrigin.UNKNOWN.value, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     user = relationship("User", foreign_keys=[user_id], backref="research_participation")
+
+
+class ResearchStudy(Base):
+    """Versioned pilot configuration without participant identity data."""
+    __tablename__ = "research_studies"
+    __table_args__ = (
+        UniqueConstraint("study_code", name="uq_research_studies_study_code"),
+        Index("ix_research_studies_study_code", "study_code", unique=True),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    study_code = Column(String(80), nullable=False)
+    name = Column(String(255), nullable=True)
+    description = Column(Text, nullable=True)
+    study_status = Column(String(20), default=ResearchStudyStatus.DRAFT.value, nullable=False)
+    fixed_sequence_version = Column(String(80), nullable=True)
+    pre_exam_id = Column(UUID(as_uuid=True), ForeignKey("exams.id", ondelete="SET NULL"), nullable=True)
+    post_exam_id = Column(UUID(as_uuid=True), ForeignKey("exams.id", ondelete="SET NULL"), nullable=True)
+    git_commit = Column(String(64), nullable=True)
+    adaptive_algorithm_version = Column(String(80), default="adaptive-v1", nullable=False)
+    adaptive_selection_policy_version = Column(String(80), default="question-selection-v1", nullable=False)
+    fixed_selection_policy_version = Column(String(80), default="fixed-sequence-v1", nullable=False)
+    question_bank_version = Column(String(80), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    pre_exam = relationship("Exam", foreign_keys=[pre_exam_id])
+    post_exam = relationship("Exam", foreign_keys=[post_exam_id])
+
+
+class ResearchStudyQuestion(Base):
+    """Versioned study-bank membership and source metadata."""
+    __tablename__ = "research_study_questions"
+    __table_args__ = (
+        UniqueConstraint(
+            "study_code", "question_id",
+            name="uq_research_study_questions_question",
+        ),
+        UniqueConstraint(
+            "study_code", "phase", "external_question_id",
+            name="uq_research_study_questions_external",
+        ),
+        Index("ix_research_study_questions_phase", "study_code", "phase"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    study_code = Column(
+        String(80),
+        ForeignKey("research_studies.study_code", ondelete="CASCADE"),
+        nullable=False,
+    )
+    question_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("questions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    phase = Column(String(10), nullable=False)
+    external_question_id = Column(String(120), nullable=False)
+    position = Column(Integer, nullable=False)
+    metadata_json = Column(JSON, default=dict, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    study = relationship("ResearchStudy")
+    question = relationship("Question")
+
+
+class ResearchSurveyResponse(Base):
+    """One pseudonymous post-study survey per enrolled participant."""
+    __tablename__ = "research_survey_responses"
+    __table_args__ = (
+        UniqueConstraint(
+            "participation_id",
+            name="uq_research_survey_responses_participation",
+        ),
+        Index("ix_research_survey_responses_study", "study_code", "submitted_at"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    participation_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("research_participation.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    study_code = Column(
+        String(80),
+        ForeignKey("research_studies.study_code", ondelete="CASCADE"),
+        nullable=False,
+    )
+    likert_answers = Column(JSON, nullable=False)
+    useful_feedback = Column(Text, nullable=True)
+    improvement_feedback = Column(Text, nullable=True)
+    submitted_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    participation = relationship("ResearchParticipation")
+    study = relationship("ResearchStudy")
+
+
+class ResearchFixedQuestionSequence(Base):
+    """Researcher-approved deterministic question order for a study version."""
+    __tablename__ = "research_fixed_question_sequences"
+    __table_args__ = (
+        UniqueConstraint(
+            "study_code", "sequence_version", "position",
+            name="uq_research_fixed_sequence_position",
+        ),
+        UniqueConstraint(
+            "study_code", "sequence_version", "question_id",
+            name="uq_research_fixed_sequence_question",
+        ),
+        Index(
+            "ix_research_fixed_sequence_active",
+            "study_code", "sequence_version", "active", "position",
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    study_code = Column(
+        String(80),
+        ForeignKey("research_studies.study_code", ondelete="CASCADE"),
+        nullable=False,
+    )
+    sequence_version = Column(String(80), nullable=False)
+    position = Column(Integer, nullable=False)
+    question_id = Column(UUID(as_uuid=True), ForeignKey("questions.id", ondelete="RESTRICT"), nullable=False)
+    active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    study = relationship("ResearchStudy")
+    question = relationship("Question")
 
 
 class QuestionAttemptHistory(Base):
@@ -399,6 +583,7 @@ class QuestionAttemptHistory(Base):
     started_at = Column(DateTime, nullable=True)
     submitted_at = Column(DateTime, nullable=False)
     response_time_seconds = Column(Float, nullable=True)
+    response_time_status = Column(String(30), nullable=True)
     attempt_number = Column(Integer, nullable=False)
     answer_snapshot = Column(Text, nullable=False)
     question_title_snapshot = Column(String(255), nullable=False)
@@ -418,6 +603,11 @@ class QuestionAttemptHistory(Base):
     adaptation_reason = Column(String(80), nullable=True)
     algorithm_version = Column(String(80), nullable=False)
     question_version = Column(String(80), nullable=True)
+    recent_accuracy = Column(Float, nullable=True)
+    recent_avg_score = Column(Float, nullable=True)
+    recent_attempts = Column(Integer, nullable=True)
+    recent_response_time_seconds = Column(Float, nullable=True)
+    recent_window_size = Column(Integer, nullable=True)
     data_origin = Column(String(20), default=ResearchDataOrigin.UNKNOWN.value, nullable=False)
     experiment_group = Column(String(20), default=ResearchExperimentGroup.NONE.value, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -457,6 +647,55 @@ class SkillMasteryHistory(Base):
 
     user = relationship("User", foreign_keys=[user_id])
     question_attempt = relationship("QuestionAttemptHistory", foreign_keys=[trigger_id])
+
+
+class AdaptiveDecisionHistory(Base):
+    """Immutable snapshot of a real question-selection decision."""
+    __tablename__ = "adaptive_decision_history"
+    __table_args__ = (
+        Index("ix_adaptive_decision_history_user_created", "user_id", "created_at"),
+        Index("ix_adaptive_decision_history_question", "selected_question_id"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    participant_code = Column(String(20), nullable=True)
+    skill_key = Column(String(80), nullable=True)
+    topic = Column(String(120), nullable=True)
+    roadmap_id = Column(UUID(as_uuid=True), ForeignKey("member_roadmaps.id", ondelete="SET NULL"), nullable=True)
+    roadmap_week = Column(Integer, nullable=True)
+    mastery_at_decision = Column(Float, nullable=True)
+    current_difficulty = Column(Float, nullable=True)
+    target_difficulty = Column(Float, nullable=True)
+    recent_accuracy = Column(Float, nullable=True)
+    recent_avg_score = Column(Float, nullable=True)
+    recent_attempts = Column(Integer, nullable=True)
+    recent_response_time_seconds = Column(Float, nullable=True)
+    recent_window_size = Column(Integer, nullable=True)
+    candidate_question_count = Column(Integer, nullable=False)
+    selected_question_id = Column(UUID(as_uuid=True), ForeignKey("questions.id", ondelete="SET NULL"), nullable=True)
+    selected_question_difficulty = Column(Float, nullable=True)
+    selection_reason = Column(String(100), nullable=False)
+    baseline_average_score = Column(Float, nullable=True)
+    ability_difficulty = Column(Float, nullable=True)
+    skill_priority_rank = Column(Integer, nullable=True)
+    algorithm_version = Column(String(80), nullable=False)
+    selection_policy_version = Column(String(80), nullable=False)
+    sequence_position = Column(Integer, nullable=True)
+    sequence_version = Column(String(80), nullable=True)
+    experiment_group = Column(String(20), default=ResearchExperimentGroup.NONE.value, nullable=False)
+    data_origin = Column(String(20), default=ResearchDataOrigin.UNKNOWN.value, nullable=False)
+    question_serve_session_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("question_serve_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", foreign_keys=[user_id])
+    roadmap = relationship("MemberRoadmap", foreign_keys=[roadmap_id])
+    selected_question = relationship("Question", foreign_keys=[selected_question_id])
+    question_serve_session = relationship("QuestionServeSession", foreign_keys=[question_serve_session_id])
 
 
 class QuestionServeSession(Base):

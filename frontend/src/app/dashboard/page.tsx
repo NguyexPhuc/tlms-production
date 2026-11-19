@@ -8,6 +8,7 @@ import { apiClient } from '@/lib/api';
 import { UserRole } from '@/types';
 import { MemberDevelopmentDashboard } from '@/types/development';
 import { DailyQuestLimitResponse } from '@/types/quest';
+import { ResearchParticipantProgress } from '@/types/research';
 
 const roleLabels: Record<string, string> = {
   candidate: 'Thực tập sinh',
@@ -40,6 +41,7 @@ export default function DashboardPage() {
   const [hasAdmin, setHasAdmin] = useState<boolean | null>(null);
   const [development, setDevelopment] = useState<MemberDevelopmentDashboard | null>(null);
   const [dailyQuestLimit, setDailyQuestLimit] = useState<DailyQuestLimitResponse | null>(null);
+  const [researchProgress, setResearchProgress] = useState<ResearchParticipantProgress | null>(null);
 
   const hasRole = (role: UserRole) => user?.roles?.includes(role) ?? false;
   const isLearningAccount = hasRole('candidate') || hasRole('member');
@@ -98,6 +100,21 @@ export default function DashboardPage() {
     loadDevelopment();
   }, [user, isLearningAccount]);
 
+  useEffect(() => {
+    const loadResearchProgress = async () => {
+      if (!user || !isLearningAccount) {
+        setResearchProgress(null);
+        return;
+      }
+      try {
+        setResearchProgress(await apiClient.getMyResearchProgress());
+      } catch {
+        setResearchProgress(null);
+      }
+    };
+    loadResearchProgress();
+  }, [user, isLearningAccount]);
+
   const handleLogout = async () => {
     await logout();
     router.push('/login');
@@ -152,6 +169,14 @@ export default function DashboardPage() {
   const roadmapProgress = Math.min(Math.max(roadmap?.progress_percentage ?? 0, 0), 100);
 
   const menuItems = [
+    {
+      title: 'Nghiên cứu TLMS 2026',
+      description: researchProgress
+        ? `PRE ${researchProgress.pre_completed ? 'xong' : 'chưa làm'} · TRAIN ${researchProgress.train_completed}/${researchProgress.train_required}`
+        : '',
+      href: '/research',
+      show: Boolean(researchProgress),
+    },
     {
       title: 'Nhiệm vụ',
       description: 'Core Tasks & Bounty',
@@ -413,6 +438,25 @@ export default function DashboardPage() {
             </p>
           </div>
         </div>
+
+        {researchProgress && (
+          <section className="border-l-4 border-blue-600 bg-white px-5 py-4 shadow-sm">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase text-blue-600">Nghiên cứu TLMS 2026</p>
+                <h2 className="mt-1 text-lg font-semibold text-gray-900">
+                  PRE {researchProgress.pre_completed ? '20/20' : '0/20'} · TRAIN {researchProgress.train_completed}/{researchProgress.train_required} · POST {researchProgress.post_completed ? '20/20' : '0/20'}
+                </h2>
+                <p className="mt-1 text-sm text-gray-500">
+                  Đồng ý: {researchProgress.consent_status === 'GRANTED' ? 'Đã xác nhận' : 'Chưa xác nhận'}
+                </p>
+              </div>
+              <button onClick={() => router.push('/research')} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+                Mở quy trình
+              </button>
+            </div>
+          </section>
+        )}
 
         {roadmap && (
           <section className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">

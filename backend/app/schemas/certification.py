@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.models.certification import AssessmentPurpose
+
 
 class CourseCreate(BaseModel):
     code: str = Field(..., min_length=2, max_length=50, pattern=r"^[A-Za-z0-9_-]+$")
@@ -79,6 +81,7 @@ class ExamCreate(BaseModel):
     duration_minutes: int = Field(30, ge=1, le=480)
     pass_percentage: float = Field(80.0, ge=0, le=100)
     max_attempts: int = Field(1, ge=1, le=20)
+    assessment_purpose: AssessmentPurpose = AssessmentPurpose.CERTIFICATION
     is_published: bool = False
     certificate_name: Optional[str] = Field(None, max_length=255)
     certificate_valid_days: Optional[int] = Field(None, ge=1, le=3650)
@@ -93,6 +96,11 @@ class ExamCreate(BaseModel):
         positions = [item.position for item in self.questions]
         if len(set(positions)) != len(positions):
             raise ValueError("Question positions must be unique")
+        if self.assessment_purpose in {
+            AssessmentPurpose.RESEARCH_PRE,
+            AssessmentPurpose.RESEARCH_POST,
+        } and self.max_attempts != 1:
+            raise ValueError("Research PRE/POST assessments allow exactly one attempt")
         return self
 
 
@@ -118,6 +126,7 @@ class ExamResponse(BaseModel):
     duration_minutes: int
     pass_percentage: float
     max_attempts: int
+    assessment_purpose: str
     is_published: bool
     certificate_name: Optional[str]
     opens_at: Optional[datetime]

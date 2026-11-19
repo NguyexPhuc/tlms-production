@@ -99,6 +99,12 @@ import {
   LessonCreate,
   PendingExamAnswer,
 } from '@/types/certification';
+import {
+  ResearchConsentStatus,
+  ResearchParticipantProgress,
+  ResearchSurveyResponse,
+  ResearchSurveySubmit,
+} from '@/types/research';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
 
@@ -677,6 +683,28 @@ class ApiClient {
     }
   ): Promise<QuestionAnswer> {
     const response = await this.client.post<QuestionAnswer>(`/questions/answers/${answerId}/review`, data);
+    return response.data;
+  }
+
+  // ============================================
+  // Research pilot
+  // ============================================
+
+  async getMyResearchProgress(): Promise<ResearchParticipantProgress> {
+    const response = await this.client.get<ResearchParticipantProgress>('/research/me');
+    return response.data;
+  }
+
+  async updateMyResearchConsent(
+    consentStatus: ResearchConsentStatus
+  ): Promise<void> {
+    await this.client.patch('/research/my-consent', { consent_status: consentStatus });
+  }
+
+  async submitMyResearchSurvey(
+    data: ResearchSurveySubmit
+  ): Promise<ResearchSurveyResponse> {
+    const response = await this.client.post<ResearchSurveyResponse>('/research/my-survey', data);
     return response.data;
   }
 

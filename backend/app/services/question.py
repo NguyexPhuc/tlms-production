@@ -15,7 +15,9 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.core.exceptions import BadRequestException, ForbiddenException, NotFoundException
+from app.models.certification import ExamResult
 from app.models.development import (
+    AdaptiveDecisionHistory,
     MemberRoadmap,
     MemberSkillProfile,
     Question,
@@ -23,9 +25,16 @@ from app.models.development import (
     QuestionAnswerStatus,
     QuestionServeSession,
     QuestionStatus,
+    QuestionVerificationStatus,
     ResearchDataOrigin,
     ResearchExperimentGroup,
+    ResearchFixedQuestionSequence,
     ResearchParticipation,
+    ResearchQuestionPhase,
+    ResearchStudy,
+    ResearchStudyQuestion,
+    ResearchStudyStatus,
+    ResponseTimeStatus,
     SkillMasteryHistory,
     UserQuestionAnswer,
 )
@@ -34,11 +43,15 @@ from app.models.user import MemberLevel, User
 from app.schemas.question import QuestionCreate, QuestionUpdate
 from app.services.ai_json import ai_json_service
 from app.services.notification import notification_service
+from app.services.research import is_active_research_participant
 
 logger = logging.getLogger(__name__)
 
 ADAPTIVE_ALGORITHM_VERSION = get_settings().ADAPTIVE_ALGORITHM_VERSION
+ADAPTIVE_SELECTION_POLICY_VERSION = get_settings().ADAPTIVE_SELECTION_POLICY_VERSION
+FIXED_SELECTION_POLICY_VERSION = "fixed-sequence-v1"
 ANSWER_EVALUATION_PROMPT_VERSION = get_settings().ANSWER_EVALUATION_PROMPT_VERSION
+RESPONSE_TIME_OUTLIER_SECONDS = get_settings().RESEARCH_RESPONSE_TIME_OUTLIER_SECONDS
 
 
 BASELINE_QUESTIONS: List[Dict[str, Any]] = [
@@ -667,15 +680,98 @@ class QuestionService:
         except ValueError:
             return TaskDifficulty.MEDIUM
 
-    async def _research_context(self, db: AsyncSession, user_id: UUID) -> tuple[str, str]:
-        participation = (
+    async def _research_participation(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+    ) -> Optional[ResearchParticipation]:
+        return (
             await db.execute(
                 select(ResearchParticipation).where(ResearchParticipation.user_id == user_id)
             )
         ).scalar_one_or_none()
+
+    async def _research_context(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+    ) -> tuple[Optional[str], str, str]:
+        participation = await self._research_participation(db, user_id)
         if participation is None:
-            return ResearchDataOrigin.UNKNOWN.value, ResearchExperimentGroup.NONE.value
-        return participation.data_origin, participation.experiment_group
+            return None, ResearchDataOrigin.UNKNOWN.value, ResearchExperimentGroup.NONE.value
+        return (
+            participation.participant_code,
+            participation.data_origin,
+            participation.experiment_group,
+        )
+
+    async def _research_training_questions(
+        self,
+        db: AsyncSession,
+        participation: ResearchParticipation,
+    ) -> List[Question]:
+        if not participation.study_code:
+            raise BadRequestException("Research study is not configured")
+        study = (
+            await db.execute(
+                select(ResearchStudy).where(ResearchStudy.study_code == participation.study_code)
+            )
+        ).scalar_one_or_none()
+        if study is None or study.study_status not in {
+            ResearchStudyStatus.PILOT.value,
+            ResearchStudyStatus.ACTIVE.value,
+        }:
+            raise BadRequestException("Research study is not open for data collection")
+        if study.pre_exam_id is None or study.post_exam_id is None:
+            raise BadRequestException("Research PRE/POST assessments are not configured")
+
+        completed_exam_ids = set(
+            (
+                await db.execute(
+                    select(ExamResult.exam_id).where(
+                        ExamResult.user_id == participation.user_id,
+                        ExamResult.exam_id.in_([study.pre_exam_id, study.post_exam_id]),
+                    )
+                )
+            ).scalars().all()
+        )
+        if study.pre_exam_id not in completed_exam_ids:
+            raise ForbiddenException("Complete the research PRE assessment before TRAIN questions")
+        if study.post_exam_id in completed_exam_ids:
+            raise ForbiddenException("Research TRAIN is closed after the POST assessment")
+
+        questions = list(
+            (
+                await db.execute(
+                    select(Question)
+                    .join(
+                        ResearchStudyQuestion,
+                        ResearchStudyQuestion.question_id == Question.id,
+                    )
+                    .where(
+                        ResearchStudyQuestion.study_code == participation.study_code,
+                        ResearchStudyQuestion.phase == ResearchQuestionPhase.TRAIN.value,
+                        Question.category == "adaptive",
+                        Question.status == QuestionStatus.ACTIVE,
+                    )
+                    .order_by(ResearchStudyQuestion.position.asc())
+                )
+            ).scalars().all()
+        )
+        if not questions:
+            raise BadRequestException("Research TRAIN question bank is empty")
+        if participation.data_origin == ResearchDataOrigin.REAL.value:
+            unverified = [
+                str(question.id)
+                for question in questions
+                if question.verified_status != QuestionVerificationStatus.VERIFIED.value
+            ]
+            if unverified:
+                raise BadRequestException(
+                    "Official REAL research TRAIN bank contains UNVERIFIED questions: "
+                    + ", ".join(unverified)
+                )
+        return questions
 
     async def _roadmap_snapshot(self, db: AsyncSession, user_id: UUID) -> tuple[Optional[UUID], Optional[int]]:
         roadmap = (
@@ -695,15 +791,15 @@ class QuestionService:
         db: AsyncSession,
         user: User,
         questions: List[Question],
-    ) -> None:
-        """Persist the first serve time without changing the question response."""
+    ) -> Dict[UUID, tuple[QuestionServeSession, bool]]:
+        """Persist first serve times and identify which sessions are newly created."""
         if not questions:
-            return
+            return {}
         question_ids = [question.id for question in questions]
-        active_ids = set(
+        active_sessions = list(
             (
                 await db.execute(
-                    select(QuestionServeSession.question_id).where(
+                    select(QuestionServeSession).where(
                         QuestionServeSession.user_id == user.id,
                         QuestionServeSession.question_id.in_(question_ids),
                         QuestionServeSession.consumed_at.is_(None),
@@ -711,28 +807,91 @@ class QuestionService:
                 )
             ).scalars().all()
         )
-        data_origin, experiment_group = await self._research_context(db, user.id)
+        sessions: Dict[UUID, tuple[QuestionServeSession, bool]] = {
+            session.question_id: (session, False) for session in active_sessions
+        }
+        _, data_origin, experiment_group = await self._research_context(db, user.id)
         now = datetime.utcnow()
         for question_id in question_ids:
-            if question_id not in active_ids:
-                try:
-                    async with db.begin_nested():
-                        db.add(
-                            QuestionServeSession(
-                                user_id=user.id,
-                                question_id=question_id,
-                                started_at=now,
-                                data_origin=data_origin,
-                                experiment_group=experiment_group,
-                            )
-                        )
-                        await db.flush()
-                except IntegrityError:
-                    logger.debug(
-                        "Question %s was concurrently served to user %s",
-                        question_id,
-                        user.id,
+            if question_id in sessions:
+                continue
+            try:
+                async with db.begin_nested():
+                    session = QuestionServeSession(
+                        user_id=user.id,
+                        question_id=question_id,
+                        started_at=now,
+                        data_origin=data_origin,
+                        experiment_group=experiment_group,
                     )
+                    db.add(session)
+                    await db.flush()
+                    sessions[question_id] = (session, True)
+            except IntegrityError:
+                logger.debug(
+                    "Question %s was concurrently served to user %s",
+                    question_id,
+                    user.id,
+                )
+                session = await self._active_serve_session(db, user.id, question_id)
+                if session is not None:
+                    sessions[question_id] = (session, False)
+        return sessions
+
+    async def _record_selection_decisions(
+        self,
+        db: AsyncSession,
+        user: User,
+        selection_plan: Dict[UUID, Dict[str, Any]],
+        serve_sessions: Dict[UUID, tuple[QuestionServeSession, bool]],
+    ) -> None:
+        """Log only new serves so browser refreshes cannot create duplicate decisions."""
+        participant_code, data_origin, experiment_group = await self._research_context(db, user.id)
+        roadmap_id, roadmap_week = await self._roadmap_snapshot(db, user.id)
+        for question_id, (serve_session, was_created) in serve_sessions.items():
+            if not was_created:
+                continue
+            snapshot = selection_plan.get(question_id)
+            if snapshot is None:
+                continue
+            db.add(
+                AdaptiveDecisionHistory(
+                    user_id=user.id,
+                    participant_code=participant_code,
+                    skill_key=snapshot.get("skill_key"),
+                    topic=snapshot.get("topic"),
+                    roadmap_id=roadmap_id,
+                    roadmap_week=roadmap_week,
+                    mastery_at_decision=snapshot.get("mastery_at_decision"),
+                    current_difficulty=snapshot.get("current_difficulty"),
+                    target_difficulty=snapshot.get("target_difficulty"),
+                    recent_accuracy=snapshot.get("recent_accuracy"),
+                    recent_avg_score=snapshot.get("recent_avg_score"),
+                    recent_attempts=snapshot.get("recent_attempts"),
+                    recent_response_time_seconds=snapshot.get("recent_response_time_seconds"),
+                    recent_window_size=snapshot.get("recent_window_size"),
+                    candidate_question_count=snapshot["candidate_question_count"],
+                    selected_question_id=question_id,
+                    selected_question_difficulty=snapshot.get("selected_question_difficulty"),
+                    selection_reason=snapshot["selection_reason"],
+                    baseline_average_score=snapshot.get("baseline_average_score"),
+                    ability_difficulty=snapshot.get("ability_difficulty"),
+                    skill_priority_rank=snapshot.get("skill_priority_rank"),
+                    algorithm_version=snapshot.get(
+                        "algorithm_version", ADAPTIVE_ALGORITHM_VERSION
+                    ),
+                    selection_policy_version=snapshot.get(
+                        "selection_policy_version", ADAPTIVE_SELECTION_POLICY_VERSION
+                    ),
+                    sequence_position=snapshot.get("sequence_position"),
+                    sequence_version=snapshot.get("sequence_version"),
+                    experiment_group=experiment_group,
+                    data_origin=data_origin,
+                    question_serve_session_id=serve_session.id,
+                    created_at=serve_session.started_at,
+                )
+            )
+        await db.flush()
 
     async def _active_serve_session(
         self,
@@ -812,10 +971,21 @@ class QuestionService:
         roadmap_week: Optional[int],
         data_origin: str,
         experiment_group: str,
+        decision_snapshot: Optional[AdaptiveDecisionHistory] = None,
     ) -> QuestionAttemptHistory:
         response_time = None
+        response_time_status = ResponseTimeStatus.MISSING_START.value
         if started_at is not None:
-            response_time = round(max(0.0, (submitted_at - started_at).total_seconds()), 3)
+            raw_duration = (submitted_at - started_at).total_seconds()
+            if raw_duration < 0:
+                response_time_status = ResponseTimeStatus.INVALID_CLOCK.value
+            else:
+                response_time = round(raw_duration, 3)
+                response_time_status = (
+                    ResponseTimeStatus.OUTLIER.value
+                    if raw_duration > RESPONSE_TIME_OUTLIER_SECONDS
+                    else ResponseTimeStatus.VALID.value
+                )
         evaluation_method, ai_provider, ai_model, prompt_version = self._evaluation_metadata(breakdown)
         return QuestionAttemptHistory(
             user_id=user_id,
@@ -830,6 +1000,7 @@ class QuestionService:
             started_at=started_at,
             submitted_at=submitted_at,
             response_time_seconds=response_time,
+            response_time_status=response_time_status,
             attempt_number=attempt_number,
             answer_snapshot=answer_text,
             question_title_snapshot=question.title,
@@ -846,8 +1017,19 @@ class QuestionService:
             mastery_after=skill_change["mastery_after"],
             difficulty_after=skill_change["difficulty_after"],
             adaptation_reason=skill_change["adaptation_reason"],
-            algorithm_version=ADAPTIVE_ALGORITHM_VERSION,
+            algorithm_version=(
+                FIXED_SELECTION_POLICY_VERSION
+                if experiment_group == ResearchExperimentGroup.FIXED.value
+                else ADAPTIVE_ALGORITHM_VERSION
+            ),
             question_version=self._question_version(question),
+            recent_accuracy=decision_snapshot.recent_accuracy if decision_snapshot else None,
+            recent_avg_score=decision_snapshot.recent_avg_score if decision_snapshot else None,
+            recent_attempts=decision_snapshot.recent_attempts if decision_snapshot else None,
+            recent_response_time_seconds=(
+                decision_snapshot.recent_response_time_seconds if decision_snapshot else None
+            ),
+            recent_window_size=decision_snapshot.recent_window_size if decision_snapshot else None,
             data_origin=data_origin,
             experiment_group=experiment_group,
             created_at=submitted_at,
@@ -869,9 +1051,18 @@ class QuestionService:
         submitted_at = datetime.utcnow()
         serve_session = await self._active_serve_session(db, user.id, question.id)
         started_at = serve_session.started_at if serve_session else None
+        decision_snapshot = None
+        if serve_session is not None:
+            decision_snapshot = (
+                await db.execute(
+                    select(AdaptiveDecisionHistory).where(
+                        AdaptiveDecisionHistory.question_serve_session_id == serve_session.id
+                    )
+                )
+            ).scalar_one_or_none()
 
         roadmap_id, roadmap_week = await self._roadmap_snapshot(db, user.id)
-        data_origin, experiment_group = await self._research_context(db, user.id)
+        _, data_origin, experiment_group = await self._research_context(db, user.id)
         attempt_number = await self._next_attempt_number(db, user.id, question.id)
         attempt = self._build_attempt_history(
             user_id=user.id,
@@ -889,6 +1080,7 @@ class QuestionService:
             roadmap_week=roadmap_week,
             data_origin=data_origin,
             experiment_group=experiment_group,
+            decision_snapshot=decision_snapshot,
         )
         db.add(attempt)
         await db.flush()
@@ -1019,12 +1211,12 @@ class QuestionService:
             ).scalars().all()
         )
 
-    def _sort_questions_for_user(
+    def _selection_plan(
         self,
         questions: List[Question],
         answers: List[UserQuestionAnswer],
         profiles: List[MemberSkillProfile],
-    ) -> List[Question]:
+    ) -> tuple[List[Question], Dict[UUID, Dict[str, Any]]]:
         answered_ids = {answer.question_id for answer in answers}
         baseline_questions = [question for question in questions if question.is_baseline]
         baseline_question_ids = {question.id for question in baseline_questions}
@@ -1034,10 +1226,21 @@ class QuestionService:
             if answer.question_id in baseline_question_ids
         }
         if len(baseline_answered) < len(baseline_questions):
-            return sorted(
-                [question for question in baseline_questions if question.id not in answered_ids],
+            candidates = [question for question in baseline_questions if question.id not in answered_ids]
+            selected = sorted(
+                candidates,
                 key=lambda question: (question.skill_key or "", question.numeric_difficulty, question.created_at),
             )[:5]
+            return selected, {
+                question.id: {
+                    "skill_key": question.skill_key,
+                    "topic": getattr(question, "topic", None),
+                    "candidate_question_count": len(candidates),
+                    "selected_question_difficulty": question.numeric_difficulty,
+                    "selection_reason": "BASELINE_REQUIRED",
+                }
+                for question in selected
+            }
 
         unanswered = [
             question
@@ -1047,7 +1250,7 @@ class QuestionService:
             and question.category == "adaptive"
         ]
         if not unanswered:
-            return []
+            return [], {}
 
         baseline_scores = [
             float(answer.final_score if answer.final_score is not None else answer.ai_score or 0.0)
@@ -1070,7 +1273,7 @@ class QuestionService:
         if not weakest_skills:
             weakest_skills = ["database", "backend", "frontend", "problem_solving"]
 
-        def rank(question: Question) -> tuple[float, float, datetime]:
+        def decision_snapshot(question: Question) -> Dict[str, Any]:
             skill_rank = weakest_skills.index(question.skill_key) if question.skill_key in weakest_skills else len(weakest_skills)
             profile = profile_by_skill.get(question.skill_key or "")
             target_difficulty = (
@@ -1078,10 +1281,142 @@ class QuestionService:
                 if profile
                 else ability_difficulty
             )
-            difficulty_gap = abs((question.numeric_difficulty or 3.0) - target_difficulty)
-            return (skill_rank, difficulty_gap, question.created_at)
+            return {
+                "skill_key": question.skill_key,
+                "topic": getattr(question, "topic", None),
+                "mastery_at_decision": float(profile.mastery_score) if profile else None,
+                "current_difficulty": float(profile.current_difficulty) if profile else None,
+                "target_difficulty": target_difficulty,
+                # The current selector does not consume a rolling attempt window.
+                # These remain NULL instead of being reconstructed after the fact.
+                "recent_accuracy": None,
+                "recent_avg_score": None,
+                "recent_attempts": None,
+                "recent_response_time_seconds": None,
+                "recent_window_size": None,
+                "candidate_question_count": len(unanswered),
+                "selected_question_difficulty": question.numeric_difficulty,
+                "selection_reason": (
+                    "WEAK_SKILL_PRIORITY_THEN_TARGET_DIFFICULTY"
+                    if profiles
+                    else "DEFAULT_SKILL_PRIORITY_THEN_TARGET_DIFFICULTY"
+                ),
+                "baseline_average_score": baseline_average,
+                "ability_difficulty": ability_difficulty,
+                "skill_priority_rank": skill_rank,
+            }
 
-        return sorted(unanswered, key=rank)[:5]
+        def rank(question: Question) -> tuple[float, float, datetime]:
+            snapshot = decision_snapshot(question)
+            difficulty_gap = abs(
+                (question.numeric_difficulty or 3.0) - snapshot["target_difficulty"]
+            )
+            return (snapshot["skill_priority_rank"], difficulty_gap, question.created_at)
+
+        selected = sorted(unanswered, key=rank)[:5]
+        return selected, {question.id: decision_snapshot(question) for question in selected}
+
+    def _fixed_selection_plan(
+        self,
+        sequence_items: List[ResearchFixedQuestionSequence],
+        answers: List[UserQuestionAnswer],
+    ) -> tuple[List[Question], Dict[UUID, Dict[str, Any]]]:
+        """Select unanswered questions strictly by the approved sequence position."""
+        answered_ids = {answer.question_id for answer in answers}
+        ordered = sorted(sequence_items, key=lambda item: item.position)
+        candidates = [item for item in ordered if item.question_id not in answered_ids]
+        selected_items = candidates[:1]
+        selected = [item.question for item in selected_items]
+        return selected, {
+            item.question_id: {
+                "skill_key": item.question.skill_key,
+                "topic": item.question.topic,
+                "candidate_question_count": len(candidates),
+                "selected_question_difficulty": item.question.numeric_difficulty,
+                "selection_reason": "FIXED_DETERMINISTIC_SEQUENCE",
+                "selection_policy_version": FIXED_SELECTION_POLICY_VERSION,
+                "algorithm_version": FIXED_SELECTION_POLICY_VERSION,
+                "sequence_position": item.position,
+                "sequence_version": item.sequence_version,
+                "mastery_at_decision": None,
+                "current_difficulty": None,
+                "target_difficulty": None,
+                "recent_accuracy": None,
+                "recent_avg_score": None,
+                "recent_attempts": None,
+                "recent_response_time_seconds": None,
+                "recent_window_size": None,
+                "baseline_average_score": None,
+                "ability_difficulty": None,
+                "skill_priority_rank": None,
+            }
+            for item in selected_items
+        }
+
+    async def _fixed_sequence_items(
+        self,
+        db: AsyncSession,
+        participation: ResearchParticipation,
+    ) -> list[ResearchFixedQuestionSequence]:
+        study = (
+            await db.execute(
+                select(ResearchStudy).where(ResearchStudy.study_code == participation.study_code)
+            )
+        ).scalar_one_or_none()
+        if study is None or not study.fixed_sequence_version:
+            raise BadRequestException(
+                "FIXED research sequence is not configured for this study"
+            )
+        items = list(
+            (
+                await db.execute(
+                    select(ResearchFixedQuestionSequence)
+                    .options(selectinload(ResearchFixedQuestionSequence.question))
+                    .where(
+                        ResearchFixedQuestionSequence.study_code == participation.study_code,
+                        ResearchFixedQuestionSequence.sequence_version == study.fixed_sequence_version,
+                        ResearchFixedQuestionSequence.active.is_(True),
+                    )
+                    .order_by(ResearchFixedQuestionSequence.position.asc())
+                )
+            ).scalars().all()
+        )
+        if not items:
+            raise BadRequestException(
+                "FIXED research sequence has no active questions"
+            )
+        inactive_questions = [
+            str(item.question_id)
+            for item in items
+            if item.question.status != QuestionStatus.ACTIVE
+        ]
+        if inactive_questions:
+            raise BadRequestException(
+                "FIXED research sequence contains inactive questions: "
+                + ", ".join(inactive_questions)
+            )
+        if participation.data_origin == ResearchDataOrigin.REAL.value:
+            unverified = [
+                str(item.question_id)
+                for item in items
+                if item.question.verified_status != QuestionVerificationStatus.VERIFIED.value
+            ]
+            if unverified:
+                raise BadRequestException(
+                    "Official REAL research cannot serve UNVERIFIED questions: "
+                    + ", ".join(unverified)
+                )
+        return items
+
+    def _sort_questions_for_user(
+        self,
+        questions: List[Question],
+        answers: List[UserQuestionAnswer],
+        profiles: List[MemberSkillProfile],
+    ) -> List[Question]:
+        """Backward-compatible selector wrapper used by existing tests and callers."""
+        selected, _ = self._selection_plan(questions, answers, profiles)
+        return selected
 
     async def _evaluate_answer_with_ai(
         self,
@@ -1157,6 +1492,8 @@ class QuestionService:
         previous_mastery = float(profile.mastery_score or 50.0)
         previous_confidence = float(profile.confidence if profile.confidence is not None else 0.3)
         previous_difficulty = float(profile.current_difficulty or 3.0)
+        if profile.current_difficulty is None:
+            profile.current_difficulty = previous_difficulty
         adjustment = (score - previous_mastery) * min(max(confidence, 0.2), 1.0) * 0.18
         profile.mastery_score = round(min(max(previous_mastery + adjustment, 0.0), 100.0), 1)
         profile.confidence = round(min(1.0, max(float(profile.confidence or 0.0), confidence) + 0.03), 2)
@@ -1219,6 +1556,23 @@ class QuestionService:
             question_type=data.question_type,
             numeric_difficulty=data.numeric_difficulty,
             source=data.source,
+            source_name=data.source_name,
+            source_url=data.source_url,
+            source_license=data.source_license,
+            is_original=data.is_original,
+            is_adapted=data.is_adapted,
+            parent_question_id=data.parent_question_id,
+            verified_status=data.verified_status.value,
+            verified_by_id=(
+                creator.id
+                if data.verified_status != QuestionVerificationStatus.UNVERIFIED
+                else None
+            ),
+            verified_at=(
+                datetime.utcnow()
+                if data.verified_status != QuestionVerificationStatus.UNVERIFIED
+                else None
+            ),
             learning_objective=data.learning_objective,
             is_baseline=data.is_baseline,
             points=data.points,
@@ -1252,6 +1606,14 @@ class QuestionService:
         for field, value in update_data.items():
             if field == "correct_option" and value:
                 value = value.upper()
+            if field == "verified_status" and value:
+                value = value.value if hasattr(value, "value") else value
+                if value == QuestionVerificationStatus.UNVERIFIED.value:
+                    question.verified_by_id = None
+                    question.verified_at = None
+                else:
+                    question.verified_by_id = updater.id
+                    question.verified_at = datetime.utcnow()
             setattr(question, field, value)
 
         question.updated_at = datetime.utcnow()
@@ -1291,10 +1653,25 @@ class QuestionService:
         if user.is_admin() or user.is_mentor():
             return sorted(questions, key=lambda question: (question.is_baseline is False, question.numeric_difficulty, question.created_at))
 
+        participation = await self._research_participation(db, user.id)
+        if participation is not None and is_active_research_participant(participation):
+            questions = await self._research_training_questions(db, participation)
         answers = await self._user_answers(db, user)
+        if (
+            participation is not None
+            and is_active_research_participant(participation)
+            and participation.experiment_group == ResearchExperimentGroup.FIXED.value
+        ):
+            sequence_items = await self._fixed_sequence_items(db, participation)
+            selected, selection_plan = self._fixed_selection_plan(sequence_items, answers)
+            serve_sessions = await self._record_served_questions(db, user, selected)
+            await self._record_selection_decisions(db, user, selection_plan, serve_sessions)
+            return selected
+
         profiles = await self._skill_profiles(db, user)
-        selected = self._sort_questions_for_user(questions, answers, profiles)
-        await self._record_served_questions(db, user, selected)
+        selected, selection_plan = self._selection_plan(questions, answers, profiles)
+        serve_sessions = await self._record_served_questions(db, user, selected)
+        await self._record_selection_decisions(db, user, selection_plan, serve_sessions)
         return selected
 
     async def submit_answer(
@@ -1307,6 +1684,31 @@ class QuestionService:
         question = await self.get_question_by_id(db, question_id)
         if question.status != QuestionStatus.ACTIVE:
             raise BadRequestException("Question is not active")
+
+        participation = await self._research_participation(db, user.id)
+        if participation is not None and is_active_research_participant(participation):
+            allowed_questions = await self._research_training_questions(db, participation)
+            if question_id not in {item.id for item in allowed_questions}:
+                raise ForbiddenException("Question is not part of this study TRAIN bank")
+        if (
+            participation is not None
+            and is_active_research_participant(participation)
+            and participation.experiment_group == ResearchExperimentGroup.FIXED.value
+        ):
+            sequence_items = await self._fixed_sequence_items(db, participation)
+            sequence_ids = {item.question_id for item in sequence_items}
+            if question_id not in sequence_ids:
+                raise ForbiddenException("Question is not part of the approved FIXED sequence")
+            if await self._active_serve_session(db, user.id, question_id) is None:
+                raise ForbiddenException("FIXED question must be served in sequence before submission")
+        elif participation is not None and is_active_research_participant(participation):
+            if (
+                participation.data_origin == ResearchDataOrigin.REAL.value
+                and question.verified_status != QuestionVerificationStatus.VERIFIED.value
+            ):
+                raise ForbiddenException("Official REAL research cannot submit an UNVERIFIED question")
+            if await self._active_serve_session(db, user.id, question_id) is None:
+                raise ForbiddenException("Research question must be served before submission")
 
         if (
             question.target_member_level != user.member_level

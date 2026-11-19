@@ -14,6 +14,10 @@ backend/uploads/
 backend/private/
 documents/exports/
 documents/reports/
+research_observational_export/
+research_real_pilot_export/
+research_real_pilot_setup/*participants*.csv
+research_real_pilot_setup/*enrollment_report.csv
 
 # Tooling and editor artifacts
 __pycache__/

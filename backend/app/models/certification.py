@@ -1,6 +1,7 @@
 """Course, exam and digital certificate persistence models."""
 import uuid
 from datetime import datetime
+from enum import Enum
 
 from sqlalchemy import (
     Boolean,
@@ -18,6 +19,12 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
+
+
+class AssessmentPurpose(str, Enum):
+    CERTIFICATION = "CERTIFICATION"
+    RESEARCH_PRE = "RESEARCH_PRE"
+    RESEARCH_POST = "RESEARCH_POST"
 
 
 class Course(Base):
@@ -87,6 +94,7 @@ class Exam(Base):
     duration_minutes = Column(Integer, default=30, nullable=False)
     pass_percentage = Column(Float, default=80.0, nullable=False)
     max_attempts = Column(Integer, default=1, nullable=False)
+    assessment_purpose = Column(String(30), default=AssessmentPurpose.CERTIFICATION.value, nullable=False)
     is_published = Column(Boolean, default=False, nullable=False)
     certificate_name = Column(String(255), nullable=True)
     certificate_valid_days = Column(Integer, nullable=True)

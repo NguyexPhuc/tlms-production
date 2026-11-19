@@ -27,11 +27,21 @@ from sqlalchemy.orm import selectinload
 from app.core.config import get_settings
 from app.core.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.models.certification import (
+    AssessmentPurpose,
     Certificate, CertificateAuditLog, CertificateTemplate,
     CertificateVerificationLog, Course, CourseEnrollment, Exam, ExamAnswer, ExamAttempt,
     ExamQuestion, ExamResult, Lesson,
 )
-from app.models.development import Question
+from app.models.development import (
+    Question,
+    QuestionAttemptHistory,
+    ResearchConsentStatus,
+    ResearchParticipation,
+    ResearchQuestionPhase,
+    ResearchStudy,
+    ResearchStudyQuestion,
+    ResearchStudyStatus,
+)
 from app.models.user import User
 from app.schemas.certification import CourseCreate, CourseUpdate, ExamCreate, LessonCreate
 from app.services.notification import notification_service
@@ -64,6 +74,20 @@ verification_rate_limiter = VerificationRateLimiter()
 
 
 class CertificationService:
+    @staticmethod
+    def is_research_assessment(exam: Exam) -> bool:
+        return exam.assessment_purpose in {
+            AssessmentPurpose.RESEARCH_PRE.value,
+            AssessmentPurpose.RESEARCH_POST.value,
+        }
+
+    @staticmethod
+    def should_issue_certificate(exam: Exam, result: ExamResult) -> bool:
+        return (
+            result.passed
+            and exam.assessment_purpose == AssessmentPurpose.CERTIFICATION.value
+        )
+
     async def ensure_default_template(self, db: AsyncSession) -> CertificateTemplate:
         template = (await db.execute(
             select(CertificateTemplate)
@@ -167,7 +191,14 @@ class CertificationService:
         if len(by_id) != len(set(question_ids)):
             raise BadRequestException("One or more questions do not exist")
 
-        exam = Exam(**payload.model_dump(exclude={"questions"}), created_by_id=actor.id)
+        if payload.assessment_purpose in {
+            AssessmentPurpose.RESEARCH_PRE,
+            AssessmentPurpose.RESEARCH_POST,
+        } and payload.max_attempts != 1:
+            raise BadRequestException("Research PRE/POST assessments allow exactly one attempt")
+        exam_data = payload.model_dump(exclude={"questions"})
+        exam_data["assessment_purpose"] = payload.assessment_purpose.value
+        exam = Exam(**exam_data, created_by_id=actor.id)
         db.add(exam)
         await db.flush()
         for item in payload.questions:
@@ -222,6 +253,7 @@ class CertificationService:
             "title": exam.title, "description": exam.description,
             "duration_minutes": exam.duration_minutes, "pass_percentage": exam.pass_percentage,
             "max_attempts": exam.max_attempts, "is_published": exam.is_published,
+            "assessment_purpose": exam.assessment_purpose,
             "certificate_name": exam.certificate_name, "opens_at": exam.opens_at,
             "closes_at": exam.closes_at, "question_count": len(exam.exam_questions),
             "attempts_used": attempts_used, "best_percentage": best_percentage,
@@ -232,13 +264,16 @@ class CertificationService:
         now = datetime.utcnow()
         if not exam.is_published or not exam.course.is_published:
             raise NotFoundException("Exam not found")
-        enrollment = (await db.execute(select(CourseEnrollment.id).where(
-            CourseEnrollment.course_id == exam.course_id,
-            CourseEnrollment.user_id == user.id,
-            CourseEnrollment.status == "active",
-        ))).scalar_one_or_none()
-        if not enrollment:
-            raise ForbiddenException("Enroll in the course before starting its exam")
+        if self.is_research_assessment(exam):
+            await self._validate_research_exam_access(db, user, exam)
+        else:
+            enrollment = (await db.execute(select(CourseEnrollment.id).where(
+                CourseEnrollment.course_id == exam.course_id,
+                CourseEnrollment.user_id == user.id,
+                CourseEnrollment.status == "active",
+            ))).scalar_one_or_none()
+            if not enrollment:
+                raise ForbiddenException("Enroll in the course before starting its exam")
         if exam.opens_at and now < exam.opens_at:
             raise BadRequestException("Exam is not open yet")
         if exam.closes_at and now >= exam.closes_at:
@@ -256,7 +291,8 @@ class CertificationService:
         count = (await db.execute(select(func.count(ExamAttempt.id)).where(
             ExamAttempt.exam_id == exam.id, ExamAttempt.user_id == user.id,
         ))).scalar() or 0
-        if count >= exam.max_attempts:
+        max_attempts = 1 if self.is_research_assessment(exam) else exam.max_attempts
+        if count >= max_attempts:
             raise BadRequestException("Maximum exam attempts reached")
         expires_at = now + timedelta(minutes=exam.duration_minutes)
         if exam.closes_at:
@@ -303,6 +339,8 @@ class CertificationService:
             raise HTTPException(status_code=409, detail="Exam time has expired")
 
         exam = await self.get_exam_entity(db, attempt.exam_id)
+        if self.is_research_assessment(exam):
+            await self._validate_research_exam_access(db, user, exam)
         items = {item.id: item for item in exam.exam_questions}
         submitted = list(answers)
         submitted_ids = [answer.exam_question_id for answer in submitted]
@@ -390,10 +428,76 @@ class CertificationService:
         db.add(result)
         attempt.status = "passed" if result.passed else "failed"
         await db.flush()
-        if result.passed:
+        if self.should_issue_certificate(exam, result):
             user = await db.get(User, attempt.user_id)
             await self.issue_certificate(db, user, exam, result)
         return result
+
+    async def _validate_research_exam_access(
+        self,
+        db: AsyncSession,
+        user: User,
+        exam: Exam,
+    ) -> None:
+        purpose_field = (
+            ResearchStudy.pre_exam_id
+            if exam.assessment_purpose == AssessmentPurpose.RESEARCH_PRE.value
+            else ResearchStudy.post_exam_id
+        )
+        study = (
+            await db.execute(select(ResearchStudy).where(purpose_field == exam.id))
+        ).scalar_one_or_none()
+        if study is None:
+            raise ForbiddenException("Research assessment is not assigned to an active study configuration")
+        if study.study_status not in {
+            ResearchStudyStatus.PILOT.value,
+            ResearchStudyStatus.ACTIVE.value,
+        }:
+            raise ForbiddenException("Research study is not open for data collection")
+        participation = (
+            await db.execute(
+                select(ResearchParticipation).where(
+                    ResearchParticipation.user_id == user.id,
+                    ResearchParticipation.study_code == study.study_code,
+                    ResearchParticipation.consent_status == ResearchConsentStatus.GRANTED.value,
+                    ResearchParticipation.completed_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if participation is None:
+            raise ForbiddenException("Active research enrollment with granted consent is required")
+        if exam.assessment_purpose == AssessmentPurpose.RESEARCH_POST.value:
+            pre_completed = (
+                await db.execute(
+                    select(ExamResult.id).where(
+                        ExamResult.user_id == user.id,
+                        ExamResult.exam_id == study.pre_exam_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if pre_completed is None:
+                raise ForbiddenException("Complete the research PRE assessment before POST")
+            train_query = (
+                select(func.count(QuestionAttemptHistory.id))
+                .join(
+                    ResearchStudyQuestion,
+                    ResearchStudyQuestion.question_id == QuestionAttemptHistory.question_id,
+                )
+                .where(
+                    QuestionAttemptHistory.user_id == user.id,
+                    QuestionAttemptHistory.data_origin == participation.data_origin,
+                    ResearchStudyQuestion.study_code == study.study_code,
+                    ResearchStudyQuestion.phase == ResearchQuestionPhase.TRAIN.value,
+                )
+            )
+            research_start = participation.consent_granted_at or participation.enrolled_at
+            if research_start is not None:
+                train_query = train_query.where(QuestionAttemptHistory.submitted_at >= research_start)
+            train_attempts = int((await db.execute(train_query)).scalar() or 0)
+            if train_attempts < 20:
+                raise ForbiddenException(
+                    f"Complete at least 20 research TRAIN attempts before POST ({train_attempts}/20)"
+                )
 
     @staticmethod
     def proficiency_level(percentage: float) -> str:

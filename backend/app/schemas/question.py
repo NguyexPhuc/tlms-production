@@ -5,7 +5,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.models.development import QuestionAnswerStatus, QuestionStatus
+from app.models.development import (
+    QuestionAnswerStatus,
+    QuestionStatus,
+    QuestionVerificationStatus,
+)
 from app.models.task import TaskCreatorType, TaskDifficulty
 from app.models.user import MemberLevel
 
@@ -21,6 +25,13 @@ class QuestionCreate(BaseModel):
     question_type: str = Field("short_answer", max_length=40)
     numeric_difficulty: float = Field(3.0, ge=1.0, le=10.0)
     source: str = Field("manager", max_length=40)
+    source_name: Optional[str] = Field(None, max_length=160)
+    source_url: Optional[str] = Field(None, max_length=1000)
+    source_license: Optional[str] = Field(None, max_length=120)
+    is_original: Optional[bool] = None
+    is_adapted: Optional[bool] = None
+    parent_question_id: Optional[UUID] = None
+    verified_status: QuestionVerificationStatus = QuestionVerificationStatus.UNVERIFIED
     learning_objective: Optional[str] = None
     is_baseline: bool = False
     points: int = Field(0, ge=0)
@@ -64,6 +75,13 @@ class QuestionUpdate(BaseModel):
     question_type: Optional[str] = Field(None, max_length=40)
     numeric_difficulty: Optional[float] = Field(None, ge=1.0, le=10.0)
     source: Optional[str] = Field(None, max_length=40)
+    source_name: Optional[str] = Field(None, max_length=160)
+    source_url: Optional[str] = Field(None, max_length=1000)
+    source_license: Optional[str] = Field(None, max_length=120)
+    is_original: Optional[bool] = None
+    is_adapted: Optional[bool] = None
+    parent_question_id: Optional[UUID] = None
+    verified_status: Optional[QuestionVerificationStatus] = None
     learning_objective: Optional[str] = None
     is_baseline: Optional[bool] = None
     points: Optional[int] = Field(None, ge=0)
@@ -91,6 +109,15 @@ class QuestionResponse(BaseModel):
     question_type: str = "short_answer"
     numeric_difficulty: float = 3.0
     source: str = "manager"
+    source_name: Optional[str] = None
+    source_url: Optional[str] = None
+    source_license: Optional[str] = None
+    is_original: Optional[bool] = None
+    is_adapted: Optional[bool] = None
+    parent_question_id: Optional[UUID] = None
+    verified_status: QuestionVerificationStatus = QuestionVerificationStatus.UNVERIFIED
+    verified_by_id: Optional[UUID] = None
+    verified_at: Optional[datetime] = None
     learning_objective: Optional[str] = None
     is_baseline: bool = False
     points: int

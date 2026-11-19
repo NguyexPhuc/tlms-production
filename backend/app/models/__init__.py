@@ -7,6 +7,7 @@ from app.models.task import Task, UserTask, TaskType, TaskDifficulty, TaskStatus
 from app.models.schedule import Schedule, Attendance, Shift, AttendanceStatus
 from app.models.profile import ProfileEvidence, EvidenceStatus
 from app.models.development import (
+    AdaptiveDecisionHistory,
     AchievementBadge,
     DailyTaskReport,
     DailyTaskStatus,
@@ -21,12 +22,20 @@ from app.models.development import (
     Question,
     QuestionAttemptHistory,
     QuestionAnswerStatus,
+    QuestionVerificationStatus,
     QuestionServeSession,
     QuestionStatus,
     ResearchConsentStatus,
     ResearchDataOrigin,
     ResearchExperimentGroup,
+    ResearchFixedQuestionSequence,
     ResearchParticipation,
+    ResearchQuestionPhase,
+    ResearchStudy,
+    ResearchStudyQuestion,
+    ResearchStudyStatus,
+    ResearchSurveyResponse,
+    ResponseTimeStatus,
     SkillMasteryHistory,
     TaskProgressUpdate,
     UserAchievementBadge,
@@ -47,6 +56,7 @@ from app.models.zalo import (
     ZaloWebhookEvent,
 )
 from app.models.certification import (
+    AssessmentPurpose,
     Certificate,
     CertificateAuditLog,
     CertificateTemplate,
@@ -62,6 +72,7 @@ from app.models.certification import (
 )
 
 __all__ = [
+    "AdaptiveDecisionHistory",
     "User",
     "UserRole",
     "UserStatus",
@@ -92,12 +103,20 @@ __all__ = [
     "Question",
     "QuestionAttemptHistory",
     "QuestionAnswerStatus",
+    "QuestionVerificationStatus",
     "QuestionServeSession",
     "QuestionStatus",
     "ResearchConsentStatus",
     "ResearchDataOrigin",
     "ResearchExperimentGroup",
+    "ResearchFixedQuestionSequence",
     "ResearchParticipation",
+    "ResearchQuestionPhase",
+    "ResearchStudy",
+    "ResearchStudyQuestion",
+    "ResearchStudyStatus",
+    "ResearchSurveyResponse",
+    "ResponseTimeStatus",
     "SkillMasteryHistory",
     "TaskProgressUpdate",
     "UserAchievementBadge",
@@ -123,6 +142,7 @@ __all__ = [
     "ZaloUserLink",
     "ZaloWebhookEvent",
     "Course",
+    "AssessmentPurpose",
     "CourseEnrollment",
     "Lesson",
     "Exam",

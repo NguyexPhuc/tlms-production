@@ -42,6 +42,7 @@ motor==3.7.1
 reportlab==5.1.0
 qrcode[pil]==8.2
 Pillow==13.0.0
+openpyxl==3.1.5
 
 # S3-compatible object storage (Cloudflare R2 in production)
 boto3==1.43.119

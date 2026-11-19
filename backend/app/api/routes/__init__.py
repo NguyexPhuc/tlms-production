@@ -2,7 +2,7 @@
 API Routes package
 """
 from fastapi import APIRouter
-from app.api.routes import auth, users, tasks, leaderboard, schedules, profile, admin, webhook, development, questions, notifications, quests, cups, zalo, certifications, scheduled_jobs
+from app.api.routes import auth, users, tasks, leaderboard, schedules, profile, admin, webhook, development, questions, notifications, quests, cups, zalo, certifications, scheduled_jobs, research
 
 # Main API router
 api_router = APIRouter()
@@ -51,6 +51,9 @@ api_router.include_router(zalo.router)
 
 # Include exams and digital certificates
 api_router.include_router(certifications.router)
+
+# Restricted study setup and participant lifecycle
+api_router.include_router(research.router)
 
 # Protected callbacks used by the free-tier external scheduler
 api_router.include_router(scheduled_jobs.router)

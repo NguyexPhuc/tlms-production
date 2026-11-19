@@ -1,0 +1,13 @@
+question_code,question_type,question_text,scale_min,scale_max
+likert_1,likert,Câu hỏi phù hợp với trình độ của tôi.,1,5
+likert_2,likert,Độ khó thay đổi hợp lý trong quá trình sử dụng.,1,5
+likert_3,likert,Các câu hỏi giúp tôi nhận ra kỹ năng còn yếu.,1,5
+likert_4,likert,Tôi cảm thấy hệ thống cá nhân hóa nội dung cho mình.,1,5
+likert_5,likert,Câu hỏi đủ rõ ràng.,1,5
+likert_6,likert,Mức độ khó không quá dễ hoặc quá khó.,1,5
+likert_7,likert,Tôi muốn tiếp tục sử dụng hệ thống.,1,5
+likert_8,likert,Adaptive Question giúp việc luyện tập hiệu quả hơn.,1,5
+likert_9,likert,Giao diện trả lời câu hỏi dễ sử dụng.,1,5
+likert_10,likert,Tôi tin tưởng kết quả đánh giá của hệ thống.,1,5
+open_1,open_text,Điều gì hữu ích nhất?,,
+open_2,open_text,Điều gì cần cải thiện?,,

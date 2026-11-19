@@ -92,7 +92,9 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     AI_MODEL: str = ""
     ADAPTIVE_ALGORITHM_VERSION: str = "adaptive-v1"
+    ADAPTIVE_SELECTION_POLICY_VERSION: str = "question-selection-v1"
     ANSWER_EVALUATION_PROMPT_VERSION: str = "answer-eval-v1"
+    RESEARCH_RESPONSE_TIME_OUTLIER_SECONDS: int = 14400
     DAILY_QUEST_LIMIT: int = 5
     DAILY_QUEST_RESET_HOUR: int = 0
     AI_AUTO_PASS_SCORE: int = 70
