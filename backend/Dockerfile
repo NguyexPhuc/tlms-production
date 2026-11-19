@@ -42,4 +42,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
 # Run via entrypoint script (waits for DB, runs migrations, starts app)
-CMD ["sh", "-c", "RESEARCH_PILOT_BACKUP_BEFORE_MIGRATION=true RESEARCH_PILOT_AUTO_SETUP=true RESEARCH_PILOT_RUN_TEST_SMOKE=true /app/entrypoint.sh"]
+CMD ["sh", "-c", "STORAGE_BACKEND=s3 RESEARCH_PILOT_BACKUP_BEFORE_MIGRATION=true RESEARCH_PILOT_AUTO_SETUP=true RESEARCH_PILOT_RUN_TEST_SMOKE=true /app/entrypoint.sh"]
