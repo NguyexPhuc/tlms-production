@@ -1,6 +1,6 @@
 # TLMS Production Pilot Audit
 
-Audit timestamp: 2026-11-19 (Asia/Ho_Chi_Minh)
+Audit timestamp: 2026-11-20 (Asia/Ho_Chi_Minh)
 
 ## Deployment inventory
 
@@ -49,11 +49,28 @@ one-time rollout flag executes a custom-format logical backup and uploads it to
 the configured private Cloudflare R2 bucket. Migration proceeds only if backup
 creation and upload succeed.
 
-Backup created: PENDING DEPLOYMENT
+Backup created: **NO**
 
 Backup method: `pg_dump --format=custom` to private R2 object storage
 
-Timestamp: PENDING DEPLOYMENT
+Timestamp: Not applicable; no backup object was created
+
+Two guarded deploys were attempted and stopped before Alembic:
+
+- `dep-dbvfuvijnfac73di09bg` stopped because `STORAGE_BACKEND` was not `s3`.
+- `dep-dc01j0m7bikc7395avhg` stopped because the Render service has none of
+  `S3_ENDPOINT_URL`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, or
+  `S3_SECRET_ACCESS_KEY` configured.
+
+The deployment guard behaved correctly: no new migration, Question Bank
+import, study setup, smoke data, or REAL enrollment was executed. The existing
+live backend remains on commit `3b7301c03e2b9db4fb64051d1ab53c8d19901397`.
+
+To resume, configure the four R2 values above as secret environment variables
+on Render service `srv-dbgv22bbc2fs73bmgjj0`. Keep `STORAGE_BACKEND=s3`.
+Do not put any credential in Git, this report, or terminal output. Then deploy
+commit `b7d7b9905722afd48d65c7eb462c08c9b0bf39d6`; the entrypoint will retry the
+backup before it is allowed to run Alembic.
 
 ## Pre-deployment status
 
@@ -76,3 +93,13 @@ REAL enrollment remains blocked until all of these production checks pass:
 - production readiness reports `YES`;
 - participant Research UI is deployed and healthy;
 - production user lookup/dry-run is reviewed.
+
+Current gate result: **BLOCKED BEFORE MIGRATION** because private backup
+storage is not configured. No production user lookup or enrollment was run.
+
+## Live service check after failed rollout
+
+- `https://tlms-api.onrender.com/health`: HTTP 200
+- `https://tlms-api.onrender.com/docs`: HTTP 200
+- `https://quangphuc.id.vn`: HTTP 200
+- `https://tlms-production.vercel.app`: HTTP 200
